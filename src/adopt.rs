@@ -1,0 +1,65 @@
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+use chrono::Utc;
+
+use crate::config::Config;
+use crate::installer::checksum::sha256_file;
+use crate::installer::extract::is_executable;
+use crate::output::{print_success, print_warning};
+use crate::state::{State, ToolEntry};
+
+pub async fn cmd_adopt(path: String, repo: String, _config: &Config) -> Result<()> {
+    let bin_path = PathBuf::from(&path);
+
+    if !bin_path.exists() {
+        anyhow::bail!("path does not exist: {}", bin_path.display());
+    }
+
+    if !bin_path.is_file() {
+        anyhow::bail!("path is not a file: {}", bin_path.display());
+    }
+
+    // Must be executable
+    if is_executable(&bin_path) {
+        anyhow::bail!("{} is not executable", bin_path.display());
+    }
+
+    let binary_name = bin_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .with_context(|| "could not determine binary name from path")?
+        .to_string();
+
+    let mut state = State::load()?;
+
+    if state.tools.contains_key(&binary_name) {
+        print_warning(&format!(
+            "{binary_name} is already managed by ghr. Use `ghr update {binary_name}` instead."
+        ));
+        return Ok(());
+    }
+
+    let sha256 = sha256_file(&bin_path).ok();
+
+    let entry = ToolEntry {
+        repo: repo.clone(),
+        installed_tag: "unknown".to_string(),
+        install_path: bin_path.canonicalize().unwrap_or(bin_path.clone()),
+        binary_name: binary_name.clone(),
+        asset_pattern: String::new(),
+        installed_sha256: sha256,
+        etag: None,
+        last_checked: Some(Utc::now()),
+        published_at: None,
+    };
+
+    state.tools.insert(binary_name.clone(), entry);
+    state.save()?;
+
+    print_success(&format!(
+        "Adopted {binary_name} ({repo}). Run `ghr update {binary_name}` to detect the current version."
+    ));
+
+    Ok(())
+}

@@ -1,0 +1,67 @@
+use clap::{Parser, Subcommand};
+
+#[derive(Parser, Debug)]
+#[command(name = "ghr", about = "GitHub Release manager — user-land binary package manager")]
+#[command(version)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Fetch releases for a repo, pick one, and install the matching asset
+    Install {
+        /// GitHub repository as owner/repo or a github.com URL
+        repo: String,
+        /// Include pre-releases in the release list
+        #[arg(long)]
+        prerelease: bool,
+    },
+
+    /// Show all managed tools with installed version and update status
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Update one or all managed tools to the latest release
+    Update {
+        /// Name of the tool to update (omit for --all)
+        name: Option<String>,
+        /// Update all managed tools
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Check for updates and print a summary (good for timer/scripting use)
+    Check {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Register an already-installed binary under ghr management
+    Adopt {
+        /// Path to the existing binary
+        path: String,
+        /// GitHub repository as owner/repo or a github.com URL
+        repo: String,
+    },
+
+    /// Uninstall a binary and remove it from ghr state
+    Remove {
+        /// Name of the tool to remove
+        name: String,
+        /// Skip the confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+
+    /// Generate and optionally enable a systemd user timer for automatic update checks
+    SetupTimer,
+
+    /// Stop, disable, and remove the ghr systemd timer
+    DisableTimer,
+}

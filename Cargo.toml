@@ -1,0 +1,42 @@
+[package]
+name = "ghr"
+version = "0.1.0"
+edition = "2024"
+description = "User-land binary package manager for GitHub releases"
+license = "MIT"
+repository = "https://github.com/Ardnys/ghr"
+keywords = ["github", "releases", "package-manager", "cli"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "ghr"
+path = "src/main.rs"
+
+[dependencies]
+clap         = { version = "4", features = ["derive"] }
+tokio        = { version = "1", features = ["full"] }
+reqwest      = { version = "0.12", features = ["stream", "json"] }
+serde        = { version = "1", features = ["derive"] }
+serde_json   = "1"
+toml         = "0.8"
+sha2         = "0.10"
+hex          = "0.4"
+tar          = "0.4"
+flate2       = "1"
+liblzma      = "0.3"
+bzip2        = "0.4"
+zip          = { version = "2", default-features = false, features = ["deflate", "bzip2", "time"] }
+dialoguer    = { version = "0.11", features = ["fuzzy-select"] }
+futures-util = "0.3"
+indicatif    = "0.17"
+console      = "0.15"
+dirs         = "5"
+anyhow       = "1"
+thiserror    = "2"
+chrono       = { version = "0.4", features = ["serde"] }
+glob         = "0.3"
+walkdir      = "2"
+indexmap     = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+tempfile     = "3"
