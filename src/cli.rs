@@ -1,7 +1,10 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "ghr", about = "GitHub Release manager — user-land binary package manager")]
+#[command(
+    name = "ghr",
+    about = "GitHub Release manager — user-land binary package manager"
+)]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]

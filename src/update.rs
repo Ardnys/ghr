@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::config::Config;
 use crate::github::api::{ConditionalResult, GithubClient};
-use crate::matcher::{match_asset, MatchOutput};
+use crate::matcher::{MatchOutput, match_asset};
 use crate::output::{print_info, print_success, print_warning};
 use crate::state::State;
 
@@ -38,7 +38,9 @@ pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Res
 
         match result {
             Ok(ConditionalResult::NotModified) => {
-                print_success(&format!("{tool_name} is already up to date (304 Not Modified)."));
+                print_success(&format!(
+                    "{tool_name} is already up to date (304 Not Modified)."
+                ));
                 if let Some(e) = state.tools.get_mut(tool_name) {
                     e.last_checked = Some(chrono::Utc::now());
                 }
@@ -59,12 +61,18 @@ pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Res
                 };
 
                 if !is_newer {
-                    print_success(&format!("{tool_name} is already up to date ({}).", entry.installed_tag));
+                    print_success(&format!(
+                        "{tool_name} is already up to date ({}).",
+                        entry.installed_tag
+                    ));
                     state.save()?;
                     continue;
                 }
 
-                println!("  Update available: {} → {}", entry.installed_tag, release.tag_name);
+                println!(
+                    "  Update available: {} → {}",
+                    entry.installed_tag, release.tag_name
+                );
 
                 let user_arch = crate::matcher::score::detect_arch();
                 let all_assets = release.assets.clone();
@@ -96,10 +104,7 @@ pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Res
 
                 // Respect the tool's original install location so adopted tools
                 // (which may live outside config.install_dir) are updated in place.
-                let install_dir = entry
-                    .install_path
-                    .parent()
-                    .unwrap_or(&config.install_dir);
+                let install_dir = entry.install_path.parent().unwrap_or(&config.install_dir);
 
                 let result = crate::installer::install_asset(
                     client.http_client(),

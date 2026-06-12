@@ -12,7 +12,11 @@ pub enum GhrError {
     NoCompatibleAssets { repo: String, tag: String },
 
     #[error("Checksum mismatch for {filename}: expected {expected}, got {got}")]
-    ChecksumMismatch { filename: String, expected: String, got: String },
+    ChecksumMismatch {
+        filename: String,
+        expected: String,
+        got: String,
+    },
 
     #[error("State file corrupted: {0}")]
     StateCorrupted(String),

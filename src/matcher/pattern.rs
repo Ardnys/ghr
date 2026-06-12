@@ -46,7 +46,10 @@ mod tests {
     #[test]
     fn pattern_matches_new_version() {
         let p = asset_to_pattern("gh_2.45.0_linux_amd64.tar.gz", "v2.45.0");
-        let names = vec!["gh_2.50.0_linux_amd64.tar.gz", "gh_2.50.0_linux_arm64.tar.gz"];
+        let names = vec![
+            "gh_2.50.0_linux_amd64.tar.gz",
+            "gh_2.50.0_linux_arm64.tar.gz",
+        ];
         let matched = match_pattern(&p, &names);
         assert_eq!(matched, vec!["gh_2.50.0_linux_amd64.tar.gz"]);
     }

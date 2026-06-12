@@ -13,7 +13,7 @@ use crate::github::types::{Asset, Release};
 use crate::matcher::pattern::asset_to_pattern;
 use crate::output::{print_info, print_success, print_warning};
 use crate::state::ToolEntry;
-use extract::{find_binary, BinarySearchResult};
+use extract::{BinarySearchResult, find_binary};
 
 /// RAII guard that removes temp files on drop.
 struct InstallGuard {
@@ -69,34 +69,41 @@ pub async fn install_asset(
     let mut guard = InstallGuard::new();
 
     // Step 1: Download to cache
-    print_info(&format!("Downloading {} ({} bytes)...", asset.name, asset.size));
+    print_info(&format!(
+        "Downloading {} ({} bytes)...",
+        asset.name, asset.size
+    ));
     let asset_path = download::download_to_cache(client, &asset.browser_download_url, &asset.name)
         .await
         .with_context(|| format!("failed to download {}", asset.name))?;
     guard.track_file(asset_path.clone());
 
     // Step 2: Checksum verification
-    let installed_sha256 = if let Some(chk_asset) =
-        checksum::find_checksum_asset(&asset.name, all_assets)
-    {
-        print_info("Verifying checksum...");
-        match checksum::verify_checksum(client, &asset_path, &asset.name, &chk_asset.browser_download_url)
+    let installed_sha256 =
+        if let Some(chk_asset) = checksum::find_checksum_asset(&asset.name, all_assets) {
+            print_info("Verifying checksum...");
+            match checksum::verify_checksum(
+                client,
+                &asset_path,
+                &asset.name,
+                &chk_asset.browser_download_url,
+            )
             .await
-        {
-            Ok(hash) => {
-                print_success("Checksum verified.");
-                Some(hash)
+            {
+                Ok(hash) => {
+                    print_success("Checksum verified.");
+                    Some(hash)
+                }
+                Err(e) => {
+                    // Guard will clean up asset_path
+                    return Err(e);
+                }
             }
-            Err(e) => {
-                // Guard will clean up asset_path
-                return Err(e);
-            }
-        }
-    } else {
-        print_warning("No checksum file found — skipping verification.");
-        // Compute local hash anyway for state tracking
-        checksum::sha256_file(&asset_path).ok()
-    };
+        } else {
+            print_warning("No checksum file found — skipping verification.");
+            // Compute local hash anyway for state tracking
+            checksum::sha256_file(&asset_path).ok()
+        };
 
     // Step 3: Extract archive (or treat as raw binary)
     // Detect by filename extension first; fall back to content_type for assets with no extension.
@@ -124,10 +131,8 @@ pub async fn install_asset(
         match find_binary(&extract_dir, binary_name)? {
             BinarySearchResult::Found(p) => p,
             BinarySearchResult::Multiple(candidates) => {
-                let names: Vec<String> = candidates
-                    .iter()
-                    .map(|p| p.display().to_string())
-                    .collect();
+                let names: Vec<String> =
+                    candidates.iter().map(|p| p.display().to_string()).collect();
                 let selection = dialoguer::Select::new()
                     .with_prompt("Multiple binaries found — pick one")
                     .items(&names)

@@ -30,8 +30,8 @@ pub fn extract_archive(archive_path: &Path, dest_dir: &Path) -> Result<()> {
 }
 
 fn extract_tar_gz(path: &Path, dest: &Path) -> Result<()> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("failed to open {}", path.display()))?;
+    let file =
+        std::fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let gz = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(gz);
     archive
@@ -40,8 +40,8 @@ fn extract_tar_gz(path: &Path, dest: &Path) -> Result<()> {
 }
 
 fn extract_tar_xz(path: &Path, dest: &Path) -> Result<()> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("failed to open {}", path.display()))?;
+    let file =
+        std::fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let xz = liblzma::read::XzDecoder::new(file);
     let mut archive = tar::Archive::new(xz);
     archive
@@ -50,8 +50,8 @@ fn extract_tar_xz(path: &Path, dest: &Path) -> Result<()> {
 }
 
 fn extract_tar_bz2(path: &Path, dest: &Path) -> Result<()> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("failed to open {}", path.display()))?;
+    let file =
+        std::fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let bz2 = bzip2::read::BzDecoder::new(file);
     let mut archive = tar::Archive::new(bz2);
     archive
@@ -60,8 +60,8 @@ fn extract_tar_bz2(path: &Path, dest: &Path) -> Result<()> {
 }
 
 fn extract_zip(path: &Path, dest: &Path) -> Result<()> {
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("failed to open {}", path.display()))?;
+    let file =
+        std::fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let mut archive = zip::ZipArchive::new(file)
         .with_context(|| format!("failed to read zip {}", path.display()))?;
     archive
@@ -116,7 +116,9 @@ pub fn is_elf(path: &Path) -> bool {
     };
     let mut magic = [0u8; 4];
     use std::io::Read;
-    f.read_exact(&mut magic).map(|_| magic == *ELF_MAGIC).unwrap_or(false)
+    f.read_exact(&mut magic)
+        .map(|_| magic == *ELF_MAGIC)
+        .unwrap_or(false)
 }
 
 pub fn is_executable(path: &Path) -> bool {
@@ -209,7 +211,8 @@ mod tests {
             header.set_size(content.len() as u64);
             header.set_mode(0o755);
             header.set_cksum();
-            ar.append_data(&mut header, "readme.txt", content as &[u8]).unwrap();
+            ar.append_data(&mut header, "readme.txt", content as &[u8])
+                .unwrap();
             ar.finish().unwrap();
         }
         std::fs::write(&archive_path, buf).unwrap();

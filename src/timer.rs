@@ -31,8 +31,7 @@ fn systemd_user_dir() -> std::path::PathBuf {
 }
 
 pub fn cmd_setup_timer() -> Result<()> {
-    let exe = std::env::current_exe()
-        .context("failed to resolve current executable path")?;
+    let exe = std::env::current_exe().context("failed to resolve current executable path")?;
     let exe_path = exe
         .to_str()
         .context("executable path contains non-UTF-8 characters")?;
@@ -49,7 +48,11 @@ pub fn cmd_setup_timer() -> Result<()> {
     std::fs::write(&timer_path, TIMER)
         .with_context(|| format!("failed to write {}", timer_path.display()))?;
 
-    print_success(&format!("Written {} (ExecStart={})", service_path.display(), exe_path));
+    print_success(&format!(
+        "Written {} (ExecStart={})",
+        service_path.display(),
+        exe_path
+    ));
     print_success(&format!("Written {}", timer_path.display()));
 
     let enable = dialoguer::Confirm::new()

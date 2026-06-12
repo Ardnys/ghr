@@ -1,5 +1,5 @@
-use anyhow::{bail, Context, Result};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, IF_NONE_MATCH};
+use anyhow::{Context, Result, bail};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, IF_NONE_MATCH};
 
 use super::types::Release;
 
@@ -31,8 +31,8 @@ impl GithubClient {
         );
 
         if let Some(ref tok) = token {
-            let val = HeaderValue::from_str(&format!("Bearer {tok}"))
-                .context("invalid token value")?;
+            let val =
+                HeaderValue::from_str(&format!("Bearer {tok}")).context("invalid token value")?;
             headers.insert(AUTHORIZATION, val);
         }
 
@@ -56,13 +56,18 @@ impl GithubClient {
 
     pub async fn list_releases(&self, repo: &str) -> Result<Vec<Release>> {
         let url = format!("https://api.github.com/repos/{repo}/releases");
-        let resp = self.client.get(&url).send().await
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
             .with_context(|| format!("failed to fetch releases for {repo}"))?;
 
         self.check_rate_limit(&resp);
 
         if resp.status() == reqwest::StatusCode::FORBIDDEN {
-            if let Some(reset) = resp.headers()
+            if let Some(reset) = resp
+                .headers()
                 .get("x-ratelimit-reset")
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_owned)
@@ -74,10 +79,14 @@ impl GithubClient {
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
-            bail!(crate::error::GhrError::ApiError { status, message: body });
+            bail!(crate::error::GhrError::ApiError {
+                status,
+                message: body
+            });
         }
 
-        resp.json::<Vec<Release>>().await
+        resp.json::<Vec<Release>>()
+            .await
             .with_context(|| format!("failed to deserialize releases for {repo}"))
     }
 
@@ -93,7 +102,9 @@ impl GithubClient {
             req = req.header(IF_NONE_MATCH, tag);
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .with_context(|| format!("failed to fetch latest release for {repo}"))?;
 
         self.check_rate_limit(&resp);
@@ -103,7 +114,8 @@ impl GithubClient {
         }
 
         if resp.status() == reqwest::StatusCode::FORBIDDEN {
-            if let Some(reset) = resp.headers()
+            if let Some(reset) = resp
+                .headers()
                 .get("x-ratelimit-reset")
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_owned)
@@ -115,7 +127,10 @@ impl GithubClient {
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
-            bail!(crate::error::GhrError::ApiError { status, message: body });
+            bail!(crate::error::GhrError::ApiError {
+                status,
+                message: body
+            });
         }
 
         let new_etag = resp
@@ -124,7 +139,9 @@ impl GithubClient {
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned);
 
-        let release = resp.json::<Release>().await
+        let release = resp
+            .json::<Release>()
+            .await
             .with_context(|| format!("failed to deserialize release for {repo}"))?;
 
         Ok(ConditionalResult::Changed(ApiResponse {

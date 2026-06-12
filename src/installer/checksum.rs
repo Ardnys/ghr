@@ -65,8 +65,8 @@ pub fn parse_checksums(content: &str, filename: &str) -> Option<String> {
 
 /// Compute the SHA-256 hex digest of a file.
 pub fn sha256_file(path: &Path) -> Result<String> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
     let digest = Sha256::digest(&bytes);
     Ok(hex::encode(digest))
 }

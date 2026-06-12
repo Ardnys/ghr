@@ -7,7 +7,7 @@ use anyhow::Result;
 use crate::error::GhrError;
 use crate::github::types::Asset;
 use filter::apply_hard_filters;
-use score::{score_and_rank, ScoredAsset, CONFIDENCE_THRESHOLD};
+use score::{CONFIDENCE_THRESHOLD, ScoredAsset, score_and_rank};
 
 pub enum MatchOutput {
     AutoSelected(ScoredAsset),
@@ -65,12 +65,16 @@ pub fn match_asset(
 
     // Confidence check
     if scored.len() == 1 {
-        return Ok(MatchOutput::AutoSelected(scored.into_iter().next().unwrap()));
+        return Ok(MatchOutput::AutoSelected(
+            scored.into_iter().next().unwrap(),
+        ));
     }
 
     let gap = scored[0].score.total - scored[1].score.total;
     if gap >= CONFIDENCE_THRESHOLD {
-        Ok(MatchOutput::AutoSelected(scored.into_iter().next().unwrap()))
+        Ok(MatchOutput::AutoSelected(
+            scored.into_iter().next().unwrap(),
+        ))
     } else {
         Ok(MatchOutput::NeedsInteraction(scored))
     }

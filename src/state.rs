@@ -43,9 +43,7 @@ impl State {
         let raw = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
 
-        toml::from_str(&raw).map_err(|e| {
-            GhrError::StateCorrupted(e.to_string()).into()
-        })
+        toml::from_str(&raw).map_err(|e| GhrError::StateCorrupted(e.to_string()).into())
     }
 
     pub fn save(&self) -> Result<()> {
@@ -58,10 +56,8 @@ impl State {
         let raw = toml::to_string_pretty(self).context("failed to serialize state")?;
 
         let tmp = path.with_extension("toml.tmp");
-        std::fs::write(&tmp, raw)
-            .with_context(|| format!("failed to write {}", tmp.display()))?;
-        std::fs::rename(&tmp, &path)
-            .with_context(|| format!("failed to rename state file"))?;
+        std::fs::write(&tmp, raw).with_context(|| format!("failed to write {}", tmp.display()))?;
+        std::fs::rename(&tmp, &path).with_context(|| format!("failed to rename state file"))?;
 
         Ok(())
     }

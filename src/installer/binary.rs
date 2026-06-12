@@ -15,8 +15,8 @@ pub fn make_executable(path: &Path) -> Result<()> {
 /// Atomically install a binary from `src` to `dest_dir/binary_name`.
 /// Uses write-to-temp + rename to avoid partial overwrites.
 pub fn atomic_install(src: &Path, dest_dir: &Path, binary_name: &str) -> Result<PathBuf> {
-    std::fs::create_dir_all(dest_dir).map_err(|_| {
-        crate::error::GhrError::InstallDirMissing { path: dest_dir.to_path_buf() }
+    std::fs::create_dir_all(dest_dir).map_err(|_| crate::error::GhrError::InstallDirMissing {
+        path: dest_dir.to_path_buf(),
     })?;
 
     make_executable(src)?;
@@ -24,8 +24,7 @@ pub fn atomic_install(src: &Path, dest_dir: &Path, binary_name: &str) -> Result<
     let dest = dest_dir.join(binary_name);
     let tmp = dest_dir.join(format!(".{binary_name}.tmp"));
 
-    std::fs::copy(src, &tmp)
-        .with_context(|| format!("failed to copy to {}", tmp.display()))?;
+    std::fs::copy(src, &tmp).with_context(|| format!("failed to copy to {}", tmp.display()))?;
 
     make_executable(&tmp)?;
 
