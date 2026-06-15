@@ -89,27 +89,29 @@ pub fn cmd_disable_timer() -> Result<()> {
         return Ok(());
     }
 
-    let enable = dialoguer::Confirm::new()
+    let disable = dialoguer::Confirm::new()
         .with_prompt("Disable and remove ghr.timer now? (systemctl --user disable --now ghr.timer)")
         .default(false)
         .interact()
         .context("failed to read user input")?;
 
-    // Stop and disable the timer unit first (best-effort; ignore if systemd unavailable)
-    let _ = std::process::Command::new("systemctl")
-        .args(["--user", "disable", "--now", "ghr.timer"])
-        .status();
+    if disable {
+        // Stop and disable the timer unit first (best-effort; ignore if systemd unavailable)
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "disable", "--now", "ghr.timer"])
+            .status();
 
-    for path in [&timer_path, &service_path] {
-        if path.exists() {
-            std::fs::remove_file(path)
-                .with_context(|| format!("failed to remove {}", path.display()))?;
-            print_success(&format!("Removed {}", path.display()));
-        } else {
-            print_warning(&format!("{} not found, skipping.", path.display()));
+        for path in [&timer_path, &service_path] {
+            if path.exists() {
+                std::fs::remove_file(path)
+                    .with_context(|| format!("failed to remove {}", path.display()))?;
+                print_success(&format!("Removed {}", path.display()));
+            } else {
+                print_warning(&format!("{} not found, skipping.", path.display()));
+            }
         }
+        print_info("Run `systemctl --user daemon-reload` if you manage units manually.");
     }
 
-    print_info("Run `systemctl --user daemon-reload` if you manage units manually.");
     Ok(())
 }

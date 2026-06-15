@@ -88,7 +88,7 @@ ghr remove ripgrep
 
 ### `ghr setup-timer`
 
-Write a systemd user service and timer that runs `ghr check` on a schedule and enable it immediately.
+Write a systemd user service and timer that runs `ghr check` on a schedule and optionally enable it immediately.
 
 ```sh
 ghr setup-timer
