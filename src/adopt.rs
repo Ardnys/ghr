@@ -20,8 +20,7 @@ pub async fn cmd_adopt(path: String, repo: String, _config: &Config) -> Result<(
         anyhow::bail!("path is not a file: {}", bin_path.display());
     }
 
-    // Must be executable
-    if is_executable(&bin_path) {
+    if !is_executable(&bin_path) {
         anyhow::bail!("{} is not executable", bin_path.display());
     }
 
