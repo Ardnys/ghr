@@ -1,142 +1,294 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use anyhow::Result;
+use indicatif::MultiProgress;
+use tokio::task::JoinSet;
 
 use crate::config::Config;
-use crate::github::api::{ConditionalResult, GithubClient};
-use crate::matcher::{MatchOutput, match_asset};
+use crate::github::api::{ApiResponse, ConditionalResult, GithubClient};
+use crate::github::types::{Asset, Release};
+use crate::installer::download::make_progress_bar;
 use crate::output::{print_info, print_success, print_warning};
-use crate::state::State;
+use crate::picker::select_asset;
+use crate::state::{State, ToolEntry};
 
-pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Result<()> {
+struct PendingUpdate {
+    name: String,
+    entry: ToolEntry,
+    release: Release,
+    asset: Asset,
+    install_dir: PathBuf,
+    new_etag: Option<String>,
+}
+
+fn print_up_to_date(name: &str, tag: &str) {
+    println!(
+        "  {} {} (up to date)",
+        console::style(name).green().bold(),
+        tag
+    );
+}
+
+/// Concurrent update for all tools: fan-out API checks → sequential asset selection
+/// → concurrent downloads → sequential extract+install.
+pub async fn cmd_update_concurrent(config: &Config) -> Result<()> {
     let mut state = State::load()?;
 
-    if state.tools.is_empty() {
+    if state.is_empty() {
         print_info("No tools managed by ghr. Run `ghr install <owner/repo>` to get started.");
         return Ok(());
     }
 
-    let tools_to_update: Vec<String> = if all {
-        state.tools.keys().cloned().collect()
-    } else if let Some(ref n) = name {
-        if !state.tools.contains_key(n.as_str()) {
-            return Err(crate::error::GhrError::UnknownTool { name: n.clone() }.into());
-        }
-        vec![n.clone()]
-    } else {
-        anyhow::bail!("specify a tool name or pass --all");
-    };
-
     let token = GithubClient::resolve_token(config.github_token.clone());
     let client = GithubClient::new(token)?;
+    let user_arch = crate::matcher::score::detect_arch();
 
-    for tool_name in &tools_to_update {
-        let entry = state.tools.get(tool_name).unwrap().clone();
-        print_info(&format!("Checking {} ({})...", tool_name, entry.repo));
+    // Phase A: concurrent API checks
+    let snapshot: Vec<(String, ToolEntry)> =
+        state.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
-        let result = client
-            .get_latest_release(&entry.repo, entry.etag.as_deref())
-            .await;
+    let mut api_set: JoinSet<(String, ToolEntry, Result<ConditionalResult<Release>>)> =
+        JoinSet::new();
 
+    for (name, entry) in snapshot {
+        let client = client.clone();
+        let repo = entry.repo.clone();
+        let etag = entry.etag.clone();
+        api_set.spawn(async move {
+            let result = client.get_latest_release(&repo, etag.as_deref()).await;
+            (name, entry, result)
+        });
+    }
+
+    let mut api_results: Vec<(String, ToolEntry, Result<ConditionalResult<Release>>)> = Vec::new();
+    while let Some(res) = api_set.join_next().await {
+        api_results.push(res?);
+    }
+    api_results.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Phase B: sequential asset selection — collect tools that need updating
+    let mut pending: Vec<PendingUpdate> = Vec::new();
+
+    for (name, entry, result) in api_results {
         match result {
             Ok(ConditionalResult::NotModified) => {
-                print_success(&format!(
-                    "{tool_name} is already up to date (304 Not Modified)."
-                ));
-                if let Some(e) = state.tools.get_mut(tool_name) {
-                    e.last_checked = Some(chrono::Utc::now());
-                }
-                state.save()?;
+                print_up_to_date(&name, &entry.installed_tag);
+                state.touch_checked(&name);
             }
-            Ok(ConditionalResult::Changed(resp)) => {
-                let release = resp.data;
+            Ok(ConditionalResult::Changed(ApiResponse {
+                data: release,
+                etag: new_etag,
+            })) => {
+                state.touch_checked(&name);
 
-                // Update etag and last_checked regardless of whether we install
-                if let Some(e) = state.tools.get_mut(tool_name) {
-                    e.etag = resp.etag;
-                    e.last_checked = Some(chrono::Utc::now());
-                }
-
-                let is_newer = match entry.published_at {
-                    Some(prev) => release.published_at > prev,
-                    None => true,
-                };
-
-                if !is_newer {
-                    print_success(&format!(
-                        "{tool_name} is already up to date ({}).",
-                        entry.installed_tag
-                    ));
-                    state.save()?;
+                if !entry.is_behind(release.published_at) {
+                    print_up_to_date(&name, &entry.installed_tag);
                     continue;
                 }
 
                 println!(
-                    "  Update available: {} → {}",
-                    entry.installed_tag, release.tag_name
+                    "  {} {} → {}",
+                    console::style(&name).yellow().bold(),
+                    entry.installed_tag,
+                    release.tag_name
                 );
 
-                let user_arch = crate::matcher::score::detect_arch();
-                let all_assets = release.assets.clone();
-
-                let match_output = match_asset(
-                    all_assets.clone(),
+                let asset = select_asset(
+                    &release,
                     &user_arch,
                     Some(&entry.asset_pattern),
                     &entry.repo,
-                    &release.tag_name,
+                    &format!("Pick an asset for {name}"),
                 )?;
+                let install_dir = entry.install_dir(&config.install_dir).to_path_buf();
 
-                let selected = match match_output {
-                    MatchOutput::AutoSelected(s) => {
-                        print_info(&format!("Auto-selected asset: {}", s.asset.name));
-                        s
-                    }
-                    MatchOutput::NeedsInteraction(candidates) => {
-                        let names: Vec<String> =
-                            candidates.iter().map(|c| c.asset.name.clone()).collect();
-                        let idx = dialoguer::Select::new()
-                            .with_prompt("Pick an asset")
-                            .items(&names)
-                            .default(0)
-                            .interact()?;
-                        candidates.into_iter().nth(idx).unwrap()
-                    }
-                };
-
-                // Respect the tool's original install location so adopted tools
-                // (which may live outside config.install_dir) are updated in place.
-                let install_dir = entry.install_path.parent().unwrap_or(&config.install_dir);
-
-                let result = crate::installer::install_asset(
-                    client.http_client(),
-                    &entry.repo,
-                    &release,
-                    &selected.asset,
-                    &entry.binary_name,
+                pending.push(PendingUpdate {
+                    name,
+                    entry,
+                    release,
+                    asset,
                     install_dir,
-                    &all_assets,
-                )
-                .await?;
-
-                state.tools.insert(tool_name.clone(), result.tool_entry);
-                state.save()?;
-                print_success(&format!(
-                    "{tool_name} updated to {} → {}",
-                    entry.installed_tag, release.tag_name
-                ));
+                    new_etag,
+                });
             }
             Err(e) => {
-                print_warning(&format!("Failed to check {tool_name}: {e:#}"));
+                print_warning(&format!("Failed to check {name}: {e:#}"));
             }
         }
     }
 
+    if pending.is_empty() {
+        state.save()?;
+        return Ok(());
+    }
+
+    // Phase C: concurrent downloads behind a MultiProgress
+    println!();
+    let mp = MultiProgress::new();
+    let http = client.http_client().clone();
+    let mut pending_map: HashMap<String, PendingUpdate> = HashMap::new();
+    let mut dl_set: JoinSet<(String, Result<crate::installer::Downloaded>)> = JoinSet::new();
+    let longest_name = pending.iter().map(|p| p.name.len()).max().unwrap_or(0);
+
+    for p in pending {
+        let task_name = p.name.clone();
+        let pb = make_progress_bar(Some(&mp), p.asset.size, &p.name, Some(longest_name));
+        let http = http.clone();
+        let asset = p.asset.clone();
+        let all_assets = p.release.assets.clone();
+        dl_set.spawn(async move {
+            let result =
+                crate::installer::download_and_verify(&http, &asset, &all_assets, pb).await;
+            (task_name, result)
+        });
+        pending_map.insert(p.name.clone(), p);
+    }
+
+    let mut downloads: Vec<(String, crate::installer::Downloaded)> = Vec::new();
+    while let Some(res) = dl_set.join_next().await {
+        let (name, dl_result) = res?;
+        match dl_result {
+            Ok(dl) => downloads.push((name, dl)),
+            Err(e) => {
+                pending_map.remove(&name);
+                print_warning(&format!("Failed to download {name}: {e:#}"));
+            }
+        }
+    }
+
+    if downloads.is_empty() {
+        state.save()?;
+        return Ok(());
+    }
+
+    // Phase D: sequential extract + install (handles interactive binary picker safely)
+    println!();
+    for (name, dl) in downloads {
+        let Some(p) = pending_map.remove(&name) else {
+            continue;
+        };
+        match crate::installer::extract_and_install(
+            dl,
+            &p.asset,
+            &p.release,
+            &p.entry.repo,
+            &p.entry.binary_name,
+            &p.install_dir,
+        )
+        .await
+        {
+            Ok(ir) => {
+                state.upsert(ir.tool_entry.with_etag(p.new_etag));
+                print_success(&format!(
+                    "{name}: {} → {}",
+                    p.entry.installed_tag, p.release.tag_name
+                ));
+            }
+            Err(e) => {
+                print_warning(&format!("Failed to install {name}: {e:#}"));
+            }
+        }
+    }
+
+    state.save()?;
+    Ok(())
+}
+
+/// Sequential update for a single named tool. `--all` is routed to the concurrent path.
+pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Result<()> {
+    if all {
+        return cmd_update_concurrent(config).await;
+    }
+
+    let mut state = State::load()?;
+
+    if state.is_empty() {
+        print_info("No tools managed by ghr. Run `ghr install <owner/repo>` to get started.");
+        return Ok(());
+    }
+
+    let tool_name = name.ok_or_else(|| anyhow::anyhow!("specify a tool name or pass --all"))?;
+    let entry = state.require(&tool_name)?.clone();
+
+    let token = GithubClient::resolve_token(config.github_token.clone());
+    let client = GithubClient::new(token)?;
+
+    print_info(&format!("Checking {} ({})...", tool_name, entry.repo));
+
+    let result = client
+        .get_latest_release(&entry.repo, entry.etag.as_deref())
+        .await;
+
+    match result {
+        Ok(ConditionalResult::NotModified) => {
+            print_success(&format!(
+                "{tool_name} is already up to date (304 Not Modified)."
+            ));
+            state.touch_checked(&tool_name);
+        }
+        Ok(ConditionalResult::Changed(ApiResponse {
+            data: release,
+            etag: new_etag,
+        })) => {
+            state.touch_checked(&tool_name);
+
+            if !entry.is_behind(release.published_at) {
+                print_success(&format!(
+                    "{tool_name} is already up to date ({}).",
+                    entry.installed_tag
+                ));
+                state.save()?;
+                return Ok(());
+            }
+
+            println!(
+                "  Update available: {} → {}",
+                entry.installed_tag, release.tag_name
+            );
+
+            let user_arch = crate::matcher::score::detect_arch();
+            let asset = select_asset(
+                &release,
+                &user_arch,
+                Some(&entry.asset_pattern),
+                &entry.repo,
+                "Pick an asset",
+            )?;
+            let install_dir = entry.install_dir(&config.install_dir).to_path_buf();
+            let pb = make_progress_bar(None, asset.size, &entry.binary_name, None);
+
+            let result = crate::installer::install_asset(
+                client.http_client(),
+                &entry.repo,
+                &release,
+                &asset,
+                &entry.binary_name,
+                &install_dir,
+                &release.assets,
+                pb,
+            )
+            .await?;
+
+            state.upsert(result.tool_entry.with_etag(new_etag));
+            print_success(&format!(
+                "{tool_name} updated to {} → {}",
+                entry.installed_tag, release.tag_name
+            ));
+        }
+        Err(e) => {
+            print_warning(&format!("Failed to check {tool_name}: {e:#}"));
+        }
+    }
+
+    state.save()?;
     Ok(())
 }
 
 pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
     let mut state = State::load()?;
 
-    if state.tools.is_empty() {
+    if state.is_empty() {
         if json {
             println!("[]");
         } else {
@@ -156,20 +308,23 @@ pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
         update_available: bool,
     }
 
+    let snapshot: Vec<(String, ToolEntry)> =
+        state.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+
     let mut results: Vec<CheckResult> = Vec::new();
     let mut any_updates = false;
 
-    for (name, entry) in &mut state.tools {
+    for (name, entry) in &snapshot {
         let result = client
             .get_latest_release(&entry.repo, entry.etag.as_deref())
             .await;
 
-        entry.last_checked = Some(chrono::Utc::now());
+        state.touch_checked(name);
 
         match result {
             Ok(ConditionalResult::NotModified) => {
                 results.push(CheckResult {
-                    name: name.to_string(),
+                    name: name.clone(),
                     installed_tag: entry.installed_tag.clone(),
                     latest_tag: None,
                     update_available: false,
@@ -177,16 +332,11 @@ pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
             }
             Ok(ConditionalResult::Changed(resp)) => {
                 let release = resp.data;
-                entry.etag = resp.etag;
-
-                let update_available = match entry.published_at {
-                    Some(prev) => release.published_at > prev,
-                    None => true,
-                };
-
-                if update_available {
-                    any_updates = true;
-                }
+                // NOTE: deliberately do NOT persist the ETag here. Storing the latest
+                // release's ETag without installing it would make the next check return
+                // 304 and wrongly report "up to date" while still on the old version.
+                let update_available = entry.is_behind(release.published_at);
+                any_updates |= update_available;
 
                 results.push(CheckResult {
                     name: name.clone(),
@@ -215,11 +365,7 @@ pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
                     r.latest_tag.as_deref().unwrap_or("?")
                 );
             } else {
-                println!(
-                    "  {} {} (up to date)",
-                    console::style(&r.name).green().bold(),
-                    r.installed_tag
-                );
+                print_up_to_date(&r.name, &r.installed_tag);
             }
         }
 

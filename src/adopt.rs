@@ -33,7 +33,7 @@ pub async fn cmd_adopt(path: String, repo: String, _config: &Config) -> Result<(
 
     let mut state = State::load()?;
 
-    if state.tools.contains_key(&binary_name) {
+    if state.contains(&binary_name) {
         print_warning(&format!(
             "{binary_name} is already managed by ghr. Use `ghr update {binary_name}` instead."
         ));
@@ -54,7 +54,7 @@ pub async fn cmd_adopt(path: String, repo: String, _config: &Config) -> Result<(
         published_at: None,
     };
 
-    state.tools.insert(binary_name.clone(), entry);
+    state.upsert(entry);
     state.save()?;
 
     print_success(&format!(

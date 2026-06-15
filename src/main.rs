@@ -6,6 +6,7 @@ mod github;
 mod installer;
 mod matcher;
 mod output;
+mod picker;
 mod state;
 mod timer;
 mod update;
@@ -56,7 +57,7 @@ fn parse_repo(input: &str) -> Result<String> {
 }
 use config::Config;
 use github::GithubClient;
-use matcher::{MatchOutput, match_asset, score::detect_arch};
+use matcher::score::detect_arch;
 use output::{print_error, print_info, print_success, print_warning};
 use state::State;
 
@@ -109,7 +110,7 @@ async fn run() -> Result<()> {
 
 fn maybe_print_stale_banner(config: &Config) {
     let Ok(state) = State::load() else { return };
-    if state.tools.is_empty() {
+    if state.is_empty() {
         return;
     }
 
@@ -117,9 +118,8 @@ fn maybe_print_stale_banner(config: &Config) {
     let now = chrono::Utc::now();
 
     let stale_count = state
-        .tools
-        .values()
-        .filter(|e| e.last_checked.map(|t| now - t > threshold).unwrap_or(true))
+        .iter()
+        .filter(|(_, e)| e.last_checked.map(|t| now - t > threshold).unwrap_or(true))
         .count();
 
     if stale_count > 0 {
@@ -137,7 +137,7 @@ async fn cmd_install(repo: &str, include_prerelease: bool, config: &Config) -> R
     // Check for an already-managed tool with the same repo before doing any network I/O.
     let mut state = State::load()?;
     let binary_name = repo.split('/').next_back().unwrap_or(repo);
-    if let Some(existing) = state.tools.get(binary_name)
+    if let Some(existing) = state.get(binary_name)
         && existing.repo == repo
     {
         anyhow::bail!(
@@ -196,49 +196,22 @@ async fn cmd_install(repo: &str, include_prerelease: bool, config: &Config) -> R
 
     // Match asset
     let user_arch = detect_arch();
-    let all_assets = release.assets.clone();
+    let asset = picker::select_asset(release, &user_arch, None, repo, "Pick an asset")?;
 
-    let match_output = match_asset(
-        all_assets.clone(),
-        &user_arch,
-        None,
-        repo,
-        &release.tag_name,
-    )?;
-
-    let selected = match match_output {
-        MatchOutput::AutoSelected(s) => {
-            print_info(&format!(
-                "Auto-selected asset: {} with {} arch: {}",
-                s.asset.name, s.score.arch_match, &user_arch
-            ));
-            s
-        }
-        MatchOutput::NeedsInteraction(candidates) => {
-            let names: Vec<String> = candidates.iter().map(|c| c.asset.name.clone()).collect();
-            let idx = dialoguer::Select::new()
-                .with_prompt("Pick an asset")
-                .items(&names)
-                .default(0)
-                .interact()?;
-            candidates.into_iter().nth(idx).unwrap()
-        }
-    };
-
+    let pb = installer::download::make_progress_bar(None, asset.size, binary_name, None);
     let result = installer::install_asset(
         client.http_client(),
         repo,
         release,
-        &selected.asset,
+        &asset,
         binary_name,
         &config.install_dir,
-        &all_assets,
+        &release.assets,
+        pb,
     )
     .await?;
 
-    state
-        .tools
-        .insert(binary_name.to_string(), result.tool_entry);
+    state.upsert(result.tool_entry);
     state.save()?;
 
     print_success(&format!(
@@ -268,7 +241,7 @@ async fn cmd_install(repo: &str, include_prerelease: bool, config: &Config) -> R
 fn cmd_list(json: bool, _config: &Config) -> Result<()> {
     let state = State::load()?;
 
-    if state.tools.is_empty() {
+    if state.is_empty() {
         print_info("No tools managed by ghr. Run `ghr install <owner/repo>` to get started.");
         return Ok(());
     }
@@ -288,7 +261,7 @@ fn cmd_list(json: bool, _config: &Config) -> Result<()> {
     );
     println!("{}", "-".repeat(80));
 
-    for (name, entry) in &state.tools {
+    for (name, entry) in state.iter() {
         let last_checked = entry
             .last_checked
             .map(|t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%d %H:%M").to_string())
@@ -309,13 +282,7 @@ fn cmd_list(json: bool, _config: &Config) -> Result<()> {
 fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
     let mut state = State::load()?;
 
-    let entry = state
-        .tools
-        .get(name)
-        .ok_or_else(|| crate::error::GhrError::UnknownTool {
-            name: name.to_string(),
-        })?
-        .clone();
+    let entry = state.require(name)?.clone();
 
     if !yes {
         let confirmed = dialoguer::Confirm::new()
@@ -344,7 +311,7 @@ fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
         ));
     }
 
-    state.tools.shift_remove(name);
+    state.remove(name);
     state.save()?;
 
     print_success(&format!("Removed {name}."));

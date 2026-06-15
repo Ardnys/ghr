@@ -3,15 +3,16 @@ pub mod checksum;
 pub mod download;
 pub mod extract;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use indicatif::ProgressBar;
 
 use crate::error::GhrError;
 use crate::github::types::{Asset, Release};
 use crate::matcher::pattern::asset_to_pattern;
-use crate::output::{print_info, print_success, print_warning};
+use crate::output::print_info;
 use crate::state::ToolEntry;
 use extract::{BinarySearchResult, find_binary};
 
@@ -54,34 +55,29 @@ pub struct InstallResult {
     pub installed_path: PathBuf,
 }
 
-/// Full install pipeline: download → verify → extract → locate binary → install.
-/// `install_dir` is where the final binary is placed; callers should pass
-/// `entry.install_path.parent()` for updates so adopted tools stay in their original location.
-pub async fn install_asset(
+pub struct Downloaded {
+    pub asset_path: PathBuf,
+    pub sha256: Option<String>,
+    guard: InstallGuard,
+}
+
+pub async fn download_and_verify(
     client: &reqwest::Client,
-    repo: &str,
-    release: &Release,
     asset: &Asset,
-    binary_name: &str,
-    install_dir: &std::path::Path,
     all_assets: &[Asset],
-) -> Result<InstallResult> {
+    pb: ProgressBar,
+) -> Result<Downloaded> {
     let mut guard = InstallGuard::new();
 
-    // Step 1: Download to cache
-    print_info(&format!(
-        "Downloading {} ({} bytes)...",
-        asset.name, asset.size
-    ));
-    let asset_path = download::download_to_cache(client, &asset.browser_download_url, &asset.name)
-        .await
-        .with_context(|| format!("failed to download {}", asset.name))?;
+    let asset_path =
+        download::download_to_cache(client, &asset.browser_download_url, &asset.name, pb.clone())
+            .await
+            .with_context(|| format!("failed to download {}", asset.name))?;
     guard.track_file(asset_path.clone());
 
-    // Step 2: Checksum verification
     let installed_sha256 =
         if let Some(chk_asset) = checksum::find_checksum_asset(&asset.name, all_assets) {
-            print_info("Verifying checksum...");
+            pb.set_message("verifying...");
             match checksum::verify_checksum(
                 client,
                 &asset_path,
@@ -91,20 +87,34 @@ pub async fn install_asset(
             .await
             {
                 Ok(hash) => {
-                    print_success("Checksum verified.");
+                    pb.finish_with_message("verified");
                     Some(hash)
                 }
                 Err(e) => {
-                    // Guard will clean up asset_path
+                    pb.finish_with_message("checksum failed");
                     return Err(e);
                 }
             }
         } else {
-            print_warning("No checksum file found — skipping verification.");
-            // Compute local hash anyway for state tracking
+            pb.finish_with_message("done");
             checksum::sha256_file(&asset_path).ok()
         };
 
+    Ok(Downloaded {
+        asset_path,
+        sha256: installed_sha256,
+        guard,
+    })
+}
+
+pub async fn extract_and_install(
+    mut dl: Downloaded,
+    asset: &Asset,
+    release: &Release,
+    repo: &str,
+    binary_name: &str,
+    install_dir: &Path,
+) -> Result<InstallResult> {
     // Step 3: Extract archive (or treat as raw binary)
     // Detect by filename extension first; fall back to content_type for assets with no extension.
     let asset_lower = asset.name.to_lowercase();
@@ -122,10 +132,10 @@ pub async fn install_asset(
 
     let binary_src = if is_archive {
         let extract_dir = download::cache_dir().join(format!("{}-extract", asset.name));
-        guard.track_dir(extract_dir.clone());
+        dl.guard.track_dir(extract_dir.clone());
 
         print_info("Extracting archive...");
-        extract::extract_archive(&asset_path, &extract_dir)?;
+        extract::extract_archive(&dl.asset_path, &extract_dir)?;
 
         // Locate binary inside the extracted tree
         match find_binary(&extract_dir, binary_name)? {
@@ -146,7 +156,7 @@ pub async fn install_asset(
             }
         }
     } else {
-        asset_path.clone()
+        dl.asset_path.clone()
     };
 
     // Step 4+5: chmod + atomic install
@@ -161,7 +171,7 @@ pub async fn install_asset(
         install_path: installed_path.clone(),
         binary_name: binary_name.to_string(),
         asset_pattern,
-        installed_sha256,
+        installed_sha256: dl.sha256.clone(),
         etag: None,
         last_checked: Some(Utc::now()),
         published_at: Some(release.published_at),
@@ -172,4 +182,24 @@ pub async fn install_asset(
         tool_entry,
         installed_path,
     })
+}
+
+/// Convenience wrapper that runs both install phases back-to-back for the simple
+/// single-tool callers (install / single update). The concurrent updater calls
+/// `download_and_verify` and `extract_and_install` directly to interleave phases.
+#[allow(clippy::too_many_arguments)]
+pub async fn install_asset(
+    client: &reqwest::Client,
+    repo: &str,
+    release: &Release,
+    asset: &Asset,
+    binary_name: &str,
+    install_dir: &std::path::Path,
+    all_assets: &[Asset],
+    pb: ProgressBar,
+) -> Result<InstallResult> {
+    let dl = download_and_verify(client, asset, all_assets, pb).await?;
+    let install_res =
+        extract_and_install(dl, asset, release, repo, binary_name, install_dir).await?;
+    Ok(install_res)
 }

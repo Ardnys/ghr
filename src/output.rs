@@ -1,6 +1,7 @@
 use console::style;
 
 use crate::error::GhrError;
+// TODO: proper logging alongside / instead of these
 
 pub fn print_error(err: &anyhow::Error) {
     if let Some(ghr_err) = err.downcast_ref::<GhrError>() {

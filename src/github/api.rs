@@ -13,6 +13,7 @@ pub enum ConditionalResult<T> {
     NotModified,
 }
 
+#[derive(Clone)]
 pub struct GithubClient {
     client: reqwest::Client,
     token: Option<String>,
