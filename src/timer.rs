@@ -89,6 +89,12 @@ pub fn cmd_disable_timer() -> Result<()> {
         return Ok(());
     }
 
+    let enable = dialoguer::Confirm::new()
+        .with_prompt("Disable and remove ghr.timer now? (systemctl --user disable --now ghr.timer)")
+        .default(false)
+        .interact()
+        .context("failed to read user input")?;
+
     // Stop and disable the timer unit first (best-effort; ignore if systemd unavailable)
     let _ = std::process::Command::new("systemctl")
         .args(["--user", "disable", "--now", "ghr.timer"])

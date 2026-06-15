@@ -88,10 +88,18 @@ ghr remove ripgrep
 
 ### `ghr setup-timer`
 
-Write a systemd user service and timer that runs `ghr check` on a schedule and optionally enable it immediately.
+Write a systemd user service and timer that runs `ghr check` on a schedule and enable it immediately.
 
 ```sh
 ghr setup-timer
+```
+
+### `ghr disable-timer`
+
+Disable and remove the ghr timer unit created by `ghr setup-timer`.
+
+```sh
+ghr disable-timer
 ```
 
 ---
@@ -132,3 +140,11 @@ If the top candidate's score is sufficiently ahead of the second, it is selected
 | `~/.config/ghr/config.toml` | User configuration |
 | `~/.local/share/ghr/state.toml` | Installed tools, versions, checksums, ETags |
 | `~/.cache/ghr/` | Download cache (cleaned after each install) |
+
+
+## Contributing
+For feature requests and bug reports, please open an issue on GitHub.
+
+
+## License
+ghr is licensed under the MIT License.
