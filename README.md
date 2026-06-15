@@ -78,9 +78,9 @@ ghr adopt ~/.local/bin/fzf junegunn/fzf
 ghr adopt /usr/local/bin/lazygit jesseduffield/lazygit
 ```
 
-### `ghr remove <name>`
+### `ghr remove [-y] <name>`
 
-Uninstall a binary and remove it from ghr state.
+Uninstall a binary and remove it from ghr state. `-y` to skip confirmation prompt
 
 ```sh
 ghr remove ripgrep
