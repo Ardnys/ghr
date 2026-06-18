@@ -98,6 +98,14 @@ Install every tool listed in the [manifest](#manifest) that is missing from loca
 ghr sync
 ```
 
+### `ghr clean`
+
+Remove ghr's download cache at `~/.cache/ghr`. Installs already clean up after themselves, but interrupted or failed runs can leave partial downloads and extraction directories behind — this is the manual sweep. The cache is fully regenerable, so it runs without a prompt and reports how much was freed.
+
+```sh
+ghr clean
+```
+
 ### `ghr setup-timer`
 
 Write a systemd user service and timer that runs `ghr check` on a schedule and optionally enable it immediately.
@@ -152,7 +160,7 @@ If the top candidate's score is sufficiently ahead of the second, it is selected
 | `~/.config/ghr/config.toml` | User configuration |
 | `~/.config/ghr/manifest.toml` | Declarative, portable list of managed tools (repo + optional pinned tag) |
 | `~/.local/share/ghr/state.toml` | Installed tools, versions, checksums, ETags |
-| `~/.cache/ghr/` | Download cache (cleaned after each install) |
+| `~/.cache/ghr/` | Download cache (cleaned after each install; `ghr clean` clears any leftovers) |
 
 ---
 
@@ -178,7 +186,7 @@ Run `ghr sync` to install everything in the manifest that isn't installed yet. A
 - [ ] Concurrent `ghr check` 
 - [x] `ghr i` alias for `ghr install`
 - [ ] `ghr install --to` command to install to given path
-- [ ] `ghr clean` to clean cache files
+- [x] `ghr clean` to clean cache files
 - [ ] logging / tracing. indicatif has both logging and tracing integrations. logs should be available in a log file. replace `println`s with proper log statements.
 - [x] Version pinning with `ghr install Ardnys/ghr -t v0.1.1`
 - [x] **manifest file support**

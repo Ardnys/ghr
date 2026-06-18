@@ -72,6 +72,9 @@ pub enum Commands {
     /// Install everything in the manifest that is missing from local state
     Sync,
 
+    /// Remove ghr's download cache (`~/.cache/ghr`)
+    Clean,
+
     /// Generate and optionally enable a systemd user timer for automatic update checks
     SetupTimer,
 

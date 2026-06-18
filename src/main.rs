@@ -1,4 +1,5 @@
 mod adopt;
+mod clean;
 mod cli;
 mod config;
 mod error;
@@ -106,6 +107,9 @@ async fn run() -> Result<()> {
         }
         Commands::Sync => {
             sync::cmd_sync(&config).await?;
+        }
+        Commands::Clean => {
+            clean::cmd_clean()?;
         }
         Commands::SetupTimer => {
             timer::cmd_setup_timer()?;
