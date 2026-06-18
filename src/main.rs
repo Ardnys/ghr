@@ -67,10 +67,28 @@ use crate::manifest::Manifest;
 
 #[tokio::main]
 async fn main() {
+    install_ctrlc_handler();
+
     if let Err(e) = run().await {
         print_error(&e);
         std::process::exit(1);
     }
+}
+
+/// Restore the terminal cursor on Ctrl-C.
+///
+/// Interactive prompts (dialoguer's release/asset pickers) hide the cursor while open and
+/// only restore it on Enter/Escape. console reads Ctrl-C in raw mode and re-raises SIGINT to
+/// us, which the default handler turns into an immediate exit — *before* dialoguer can show
+/// the cursor again, leaving the terminal with an invisible cursor until `reset`. This
+/// handler runs on its own thread (so terminal I/O + exit are safe), shows the cursor, and
+/// exits with the conventional 130 (128 + SIGINT).
+fn install_ctrlc_handler() {
+    let _ = ctrlc::set_handler(|| {
+        let _ = console::Term::stderr().show_cursor();
+        let _ = console::Term::stdout().show_cursor();
+        std::process::exit(130);
+    });
 }
 
 async fn run() -> Result<()> {
