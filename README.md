@@ -41,7 +41,7 @@ ghr install sharkdp/fd --prerelease   # include pre-releases
 ghr install sharkdp/bat -t v0.24.0    # pin to a specific release tag
 ```
 
-`<repo>` accepts `owner/repo` or any `github.com` URL (with or without scheme, trailing paths are ignored).
+`<repo>` accepts `owner/repo` or any `github.com` URL (with or without scheme, trailing paths are ignored). `ghr i` is a shorthand alias for `ghr install`.
 
 Pass `-t/--tag <tag>` to install (and pin) an exact release instead of picking interactively. A pinned tool is **locked**: `ghr update` skips it until you explicitly unpin it with `ghr update <name> --force` (see below). To move a pin to a different tag, re-run `ghr install <repo> -t <newtag>` on the already-managed tool — it reinstalls at that tag and updates the pin in place. Every install records the tool in the [manifest](#manifest).
 
@@ -174,17 +174,17 @@ tag = "v0.24.0"      # optional — presence pins/locks the tool to this tag
 Run `ghr sync` to install everything in the manifest that isn't installed yet. A `tag` both selects the version `sync` installs and locks the tool so `ghr update` skips it.
 
 ## Roadmap
-- [ ] aliasing with -a / --alias, for ripgrep for example
-- [ ] logging / tracing. indicatif has both logging and tracing integrations. logs should be available in a log file. replace `println`s with proper log statements.
+- [ ] aliasing with -a / --alias, for ripgrep for example. should be persisted in manifest as well.
 - [ ] Concurrent `ghr check` 
+- [x] `ghr i` alias for `ghr install`
+- [ ] `ghr install --to` command to install to given path
+- [ ] `ghr clean` to clean cache files
+- [ ] logging / tracing. indicatif has both logging and tracing integrations. logs should be available in a log file. replace `println`s with proper log statements.
 - [x] Version pinning with `ghr install Ardnys/ghr -t v0.1.1`
 - [x] **manifest file support**
   - [x] `manifest.toml` alongside config.toml, shows tools and repositories, optional version tags.
   - [x] `ghr install` and `ghr remove` keeps that file in sync automatically.
   - [x] `ghr sync` installs everything in the manifest file that's missing in current state.
-- [ ] `ghr i` alias for `ghr install`
-- [ ] `ghr install --to` command to install to given path
-- [ ] `ghr clean` to clean cache files
 - [ ] perhaps installing binaries to somewhere related to ghr as default, so it's clear what's managed by ghr and what is not
 
 ## Contributing

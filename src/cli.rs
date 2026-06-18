@@ -14,6 +14,7 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Fetch releases for a repo, pick one, and install the matching asset
+    #[command(visible_alias = "i")]
     Install {
         /// GitHub repository as owner/repo or a github.com URL
         repo: String,
