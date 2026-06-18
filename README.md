@@ -60,7 +60,7 @@ ghr update bat --force   # update a pinned tool to latest and clear its pin
 
 ### `ghr check [--json]`
 
-Check for available updates without installing anything. Exits with code `1` if any updates are available, making it useful in scripts.
+Check for available updates without installing anything. Checks run concurrently, and pinned tools are skipped. Exits with code `1` if any updates are available, making it useful in scripts.
 
 ```sh
 ghr check
@@ -186,7 +186,7 @@ Run `ghr sync` to install everything in the manifest that isn't installed yet. A
 
 ## Roadmap
 - [ ] aliasing with -a / --alias, for ripgrep for example. should be persisted in manifest as well.
-- [ ] Concurrent `ghr check` 
+- [x] Concurrent `ghr check`
 - [x] `ghr i` alias for `ghr install`
 - [x] `ghr install --to` command to install to given path
 - [x] `ghr clean` to clean cache files

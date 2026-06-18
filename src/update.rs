@@ -361,21 +361,41 @@ pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
     let mut results: Vec<CheckResult> = Vec::new();
     let mut any_updates = false;
 
-    for (name, entry) in &snapshot {
+    // Fan out the API checks concurrently. Pinned tools are skipped up front (a pin is a
+    // lock), so no request is wasted on them — same policy as `update --all`.
+    let mut api_set: JoinSet<(String, ToolEntry, Result<ConditionalResult<Release>>)> =
+        JoinSet::new();
+
+    for (name, entry) in snapshot {
         if manifest.is_pinned(&entry.repo).is_some() {
-            print_warning(&format!("{} is pinned. Skipping update check.", entry.repo));
+            print_warning(&format!(
+                "{} is pinned to {}. Skipping update check.",
+                entry.repo, entry.installed_tag
+            ));
             continue;
         }
-        let result = client
-            .get_latest_release(&entry.repo, entry.etag.as_deref())
-            .await;
+        let client = client.clone();
+        let repo = entry.repo.clone();
+        let etag = entry.etag.clone();
+        api_set.spawn(async move {
+            let result = client.get_latest_release(&repo, etag.as_deref()).await;
+            (name, entry, result)
+        });
+    }
 
-        state.touch_checked(name);
+    let mut api_results: Vec<(String, ToolEntry, Result<ConditionalResult<Release>>)> = Vec::new();
+    while let Some(res) = api_set.join_next().await {
+        api_results.push(res?);
+    }
+    api_results.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for (name, entry, result) in api_results {
+        state.touch_checked(&name);
 
         match result {
             Ok(ConditionalResult::NotModified) => {
                 results.push(CheckResult {
-                    name: name.clone(),
+                    name,
                     installed_tag: entry.installed_tag.clone(),
                     latest_tag: None,
                     update_available: false,
@@ -390,7 +410,7 @@ pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
                 any_updates |= update_available;
 
                 results.push(CheckResult {
-                    name: name.clone(),
+                    name,
                     installed_tag: entry.installed_tag.clone(),
                     latest_tag: Some(release.tag_name),
                     update_available,
