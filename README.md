@@ -39,9 +39,12 @@ ghr install BurntSushi/ripgrep
 ghr install https://github.com/cli/cli
 ghr install sharkdp/fd --prerelease   # include pre-releases
 ghr install sharkdp/bat -t v0.24.0    # pin to a specific release tag
+ghr install junegunn/fzf --to ~/bin   # install into a specific directory
 ```
 
 `<repo>` accepts `owner/repo` or any `github.com` URL (with or without scheme, trailing paths are ignored). `ghr i` is a shorthand alias for `ghr install`.
+
+Pass `--to <path>` to install into a directory other than the configured `install_dir` (a leading `~` is expanded). The choice is recorded in the tool's install path, so later `ghr update`s reinstall it there too. It's a local override and is not written to the manifest.
 
 Pass `-t/--tag <tag>` to install (and pin) an exact release instead of picking interactively. A pinned tool is **locked**: `ghr update` skips it until you explicitly unpin it with `ghr update <name> --force` (see below). To move a pin to a different tag, re-run `ghr install <repo> -t <newtag>` on the already-managed tool — it reinstalls at that tag and updates the pin in place. Every install records the tool in the [manifest](#manifest).
 
@@ -185,7 +188,7 @@ Run `ghr sync` to install everything in the manifest that isn't installed yet. A
 - [ ] aliasing with -a / --alias, for ripgrep for example. should be persisted in manifest as well.
 - [ ] Concurrent `ghr check` 
 - [x] `ghr i` alias for `ghr install`
-- [ ] `ghr install --to` command to install to given path
+- [x] `ghr install --to` command to install to given path
 - [x] `ghr clean` to clean cache files
 - [ ] logging / tracing. indicatif has both logging and tracing integrations. logs should be available in a log file. replace `println`s with proper log statements.
 - [x] Version pinning with `ghr install Ardnys/ghr -t v0.1.1`

@@ -1,6 +1,8 @@
+use std::path::{Path, PathBuf};
+
 use anyhow::Result;
 
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::github::GithubClient;
 use crate::github::types::Release;
 use crate::installer::{self, InstallResult};
@@ -37,6 +39,7 @@ pub async fn resolve_and_install(
     selection: ReleaseSelection,
     include_prerelease: bool,
     config: &Config,
+    install_dir: &Path,
     state: &mut State,
 ) -> Result<InstallResult> {
     let binary_name = repo.split('/').next_back().unwrap_or(repo);
@@ -84,7 +87,7 @@ pub async fn resolve_and_install(
         &release,
         &asset,
         binary_name,
-        &config.install_dir,
+        install_dir,
         &release.assets,
         pb,
     )
@@ -99,9 +102,18 @@ pub async fn resolve_and_install(
 pub async fn cmd_install(
     repo: &str,
     tag: Option<String>,
+    to: Option<PathBuf>,
     include_prerelease: bool,
     config: &Config,
 ) -> Result<()> {
+    // Resolve the effective install directory: a `--to` override (with `~` expanded) wins,
+    // otherwise the configured install_dir. The chosen dir is stored in the tool's
+    // install_path, so future `ghr update`s reinstall here too — same as adopted tools.
+    let install_dir = match &to {
+        Some(p) => config::expand_tilde(p),
+        None => config.install_dir.clone(),
+    };
+
     // Look for an already-managed tool with the same repo before doing any network I/O.
     let mut state = State::load()?;
     let binary_name = repo.split('/').next_back().unwrap_or(repo);
@@ -157,6 +169,7 @@ pub async fn cmd_install(
         selection,
         include_prerelease,
         config,
+        &install_dir,
         &mut state,
     )
     .await?;
@@ -175,16 +188,15 @@ pub async fn cmd_install(
         result.installed_path.display()
     ));
 
-    // Warn if install_dir is not on PATH
+    // Warn if the install dir is not on PATH
+    // BUG: it looks weird with "." as a path
     if let Ok(path_var) = std::env::var("PATH") {
-        let on_path = path_var
-            .split(':')
-            .any(|p| std::path::Path::new(p) == config.install_dir);
+        let on_path = path_var.split(':').any(|p| Path::new(p) == install_dir);
         if !on_path {
             print_warning(&format!(
                 "{} is not on your PATH. Add it: export PATH=\"{}:$PATH\"",
-                config.install_dir.display(),
-                config.install_dir.display()
+                install_dir.display(),
+                install_dir.display()
             ));
         }
     }

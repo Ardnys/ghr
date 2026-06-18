@@ -48,7 +48,17 @@ pub async fn cmd_sync(config: &Config) -> Result<()> {
             }
         };
 
-        match resolve_and_install(&client, repo, selection, false, config, &mut state).await {
+        match resolve_and_install(
+            &client,
+            repo,
+            selection,
+            false,
+            config,
+            &config.install_dir,
+            &mut state,
+        )
+        .await
+        {
             Ok(result) => {
                 installed += 1;
                 print_success(&format!(

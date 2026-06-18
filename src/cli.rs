@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
@@ -21,6 +23,9 @@ pub enum Commands {
         /// Pin to a specific release tag instead of picking interactively
         #[arg(short = 't', long)]
         tag: Option<String>,
+        /// Install into this directory instead of the configured install_dir
+        #[arg(long, value_name = "PATH")]
+        to: Option<PathBuf>,
         /// Include pre-releases in the release list
         #[arg(long)]
         prerelease: bool,

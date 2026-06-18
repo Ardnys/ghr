@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,19 @@ fn default_install_dir() -> PathBuf {
         .join(".local/bin")
 }
 
+/// Expand a leading `~` in `path` to the user's home directory. Paths without a `~` prefix
+/// (and the case where the home dir can't be resolved) are returned unchanged.
+/// TODO: idk if this is enough. there's a tilde crate for this
+pub fn expand_tilde(path: &Path) -> PathBuf {
+    if let Ok(stripped) = path.strip_prefix("~")
+        && let Some(home) = dirs::home_dir()
+    {
+        home.join(stripped)
+    } else {
+        path.to_path_buf()
+    }
+}
+
 /// The ghr config directory (`~/.config/ghr`). Shared by `config.toml` and `manifest.toml`.
 pub fn config_dir() -> PathBuf {
     dirs::config_dir()
@@ -69,11 +82,7 @@ impl Config {
             toml::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))?;
 
         // Expand ~ in install_dir
-        if let Ok(stripped) = config.install_dir.strip_prefix("~")
-            && let Some(home) = dirs::home_dir()
-        {
-            config.install_dir = home.join(stripped);
-        }
+        config.install_dir = expand_tilde(&config.install_dir);
 
         // Empty string token → None
         if config.github_token.as_deref() == Some("") {
