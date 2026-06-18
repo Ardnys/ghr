@@ -38,17 +38,21 @@ Fetch releases for a GitHub repository, pick a release and asset interactively, 
 ghr install BurntSushi/ripgrep
 ghr install https://github.com/cli/cli
 ghr install sharkdp/fd --prerelease   # include pre-releases
+ghr install sharkdp/bat -t v0.24.0    # pin to a specific release tag
 ```
 
 `<repo>` accepts `owner/repo` or any `github.com` URL (with or without scheme, trailing paths are ignored).
 
-### `ghr update [name] [--all]`
+Pass `-t/--tag <tag>` to install (and pin) an exact release instead of picking interactively. A pinned tool is **locked**: `ghr update` skips it until you explicitly unpin it with `ghr update <name> --force` (see below). To move a pin to a different tag, re-run `ghr install <repo> -t <newtag>` on the already-managed tool — it reinstalls at that tag and updates the pin in place. Every install records the tool in the [manifest](#manifest).
 
-Update one or all managed tools to their latest release.
+### `ghr update [name] [--all] [-f/--force]`
+
+Update one or all managed tools to their latest release. Pinned tools are skipped by default. Use `-f/--force` on a named tool to update it to the latest release anyway, which clears its pin (the tool tracks latest again afterwards). `--force` has no effect with `--all` — pinned tools stay locked there; name the tool to force it.
 
 ```sh
 ghr update ripgrep
 ghr update --all
+ghr update bat --force   # update a pinned tool to latest and clear its pin
 ```
 
 ### `ghr check [--json]`
@@ -84,6 +88,14 @@ Uninstall a binary and remove it from ghr state. `-y` to skip confirmation promp
 
 ```sh
 ghr remove ripgrep
+```
+
+### `ghr sync`
+
+Install every tool listed in the [manifest](#manifest) that is missing from local state. Pinned entries install their exact tag; the rest install the latest release. Tools already installed are left untouched. This is how you reproduce your toolset on a new machine after copying over `manifest.toml`.
+
+```sh
+ghr sync
 ```
 
 ### `ghr setup-timer`
@@ -138,9 +150,42 @@ If the top candidate's score is sufficiently ahead of the second, it is selected
 | Path | Purpose |
 |------|---------|
 | `~/.config/ghr/config.toml` | User configuration |
+| `~/.config/ghr/manifest.toml` | Declarative, portable list of managed tools (repo + optional pinned tag) |
 | `~/.local/share/ghr/state.toml` | Installed tools, versions, checksums, ETags |
 | `~/.cache/ghr/` | Download cache (cleaned after each install) |
 
+---
+
+## Manifest
+
+`~/.config/ghr/manifest.toml` is a declarative, portable list of the tools ghr manages. Unlike `state.toml` — a local runtime cache of install paths, checksums, and ETags — the manifest holds only each tool's portable identity (its repo and an optional pinned tag), so you can commit it to your dotfiles and replay it on another machine.
+
+`ghr install`, `ghr remove`, and `ghr adopt` keep it in sync automatically. You can also hand-edit it:
+
+```toml
+[[tools]]
+repo = "BurntSushi/ripgrep"
+
+[[tools]]
+repo = "sharkdp/bat"
+tag = "v0.24.0"      # optional — presence pins/locks the tool to this tag
+```
+
+Run `ghr sync` to install everything in the manifest that isn't installed yet. A `tag` both selects the version `sync` installs and locks the tool so `ghr update` skips it.
+
+## Roadmap
+- [ ] aliasing with -a / --alias, for ripgrep for example
+- [ ] logging / tracing. indicatif has both logging and tracing integrations. logs should be available in a log file. replace `println`s with proper log statements.
+- [ ] Concurrent `ghr check` 
+- [x] Version pinning with `ghr install Ardnys/ghr -t v0.1.1`
+- [x] **manifest file support**
+  - [x] `manifest.toml` alongside config.toml, shows tools and repositories, optional version tags.
+  - [x] `ghr install` and `ghr remove` keeps that file in sync automatically.
+  - [x] `ghr sync` installs everything in the manifest file that's missing in current state.
+- [ ] `ghr i` alias for `ghr install`
+- [ ] `ghr install --to` command to install to given path
+- [ ] `ghr clean` to clean cache files
+- [ ] perhaps installing binaries to somewhere related to ghr as default, so it's clear what's managed by ghr and what is not
 
 ## Contributing
 For feature requests and bug reports, please open an issue on GitHub.

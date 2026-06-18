@@ -98,6 +98,13 @@ impl State {
         self.tools.contains_key(name)
     }
 
+    /// Whether any managed tool was installed from `repo`. Used by `sync` to skip
+    /// manifest entries that are already installed (state is keyed by binary name,
+    /// the manifest by repo, so the lookup is by value here).
+    pub fn contains_repo(&self, repo: &str) -> bool {
+        self.tools.values().any(|e| e.repo == repo)
+    }
+
     /// Look up a tool, returning a typed `UnknownTool` error if it isn't managed.
     pub fn require(&self, name: &str) -> Result<&ToolEntry> {
         self.tools.get(name).ok_or_else(|| {

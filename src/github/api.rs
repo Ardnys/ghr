@@ -90,6 +90,47 @@ impl GithubClient {
             .with_context(|| format!("failed to deserialize releases for {repo}"))
     }
 
+    /// Fetch a single release by its exact tag (`GET /repos/{repo}/releases/tags/{tag}`).
+    /// Used for version pinning. A 404 means there is no release with that tag.
+    pub async fn get_release_by_tag(&self, repo: &str, tag: &str) -> Result<Release> {
+        let url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .with_context(|| format!("failed to fetch release {tag} for {repo}"))?;
+
+        self.check_rate_limit(&resp);
+
+        if resp.status() == reqwest::StatusCode::FORBIDDEN
+            && let Some(reset) = resp
+                .headers()
+                .get("x-ratelimit-reset")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        {
+            bail!(crate::error::GhrError::RateLimitExceeded { reset_time: reset });
+        }
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            bail!("no release tagged '{tag}' found for {repo}");
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            bail!(crate::error::GhrError::ApiError {
+                status,
+                message: body
+            });
+        }
+
+        resp.json::<Release>()
+            .await
+            .with_context(|| format!("failed to deserialize release {tag} for {repo}"))
+    }
+
     pub async fn get_latest_release(
         &self,
         repo: &str,

@@ -17,6 +17,9 @@ pub enum Commands {
     Install {
         /// GitHub repository as owner/repo or a github.com URL
         repo: String,
+        /// Pin to a specific release tag instead of picking interactively
+        #[arg(short = 't', long)]
+        tag: Option<String>,
         /// Include pre-releases in the release list
         #[arg(long)]
         prerelease: bool,
@@ -36,6 +39,9 @@ pub enum Commands {
         /// Update all managed tools
         #[arg(long)]
         all: bool,
+        /// Force-update a pinned tool to the latest release, clearing its pin
+        #[arg(short = 'f', long)]
+        force: bool,
     },
 
     /// Check for updates and print a summary (good for timer/scripting use)
@@ -61,6 +67,9 @@ pub enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
+
+    /// Install everything in the manifest that is missing from local state
+    Sync,
 
     /// Generate and optionally enable a systemd user timer for automatic update checks
     SetupTimer,

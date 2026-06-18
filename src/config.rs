@@ -41,11 +41,16 @@ fn default_install_dir() -> PathBuf {
         .join(".local/bin")
 }
 
+/// The ghr config directory (`~/.config/ghr`). Shared by `config.toml` and `manifest.toml`.
+pub fn config_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
+        .join("ghr")
+}
+
 impl Config {
     pub fn config_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".config"))
-            .join("ghr/config.toml")
+        config_dir().join("config.toml")
     }
 
     pub fn load() -> Result<Self> {

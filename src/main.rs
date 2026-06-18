@@ -3,11 +3,14 @@ mod cli;
 mod config;
 mod error;
 mod github;
+mod install;
 mod installer;
+mod manifest;
 mod matcher;
 mod output;
 mod picker;
 mod state;
+mod sync;
 mod timer;
 mod update;
 
@@ -56,10 +59,10 @@ fn parse_repo(input: &str) -> Result<String> {
     }
 }
 use config::Config;
-use github::GithubClient;
-use matcher::score::detect_arch;
 use output::{print_error, print_info, print_success, print_warning};
 use state::State;
+
+use crate::manifest::Manifest;
 
 #[tokio::main]
 async fn main() {
@@ -77,15 +80,19 @@ async fn run() -> Result<()> {
     maybe_print_stale_banner(&config);
 
     match cli.command {
-        Commands::Install { repo, prerelease } => {
+        Commands::Install {
+            repo,
+            tag,
+            prerelease,
+        } => {
             let repo = parse_repo(&repo)?;
-            cmd_install(&repo, prerelease, &config).await?;
+            install::cmd_install(&repo, tag, prerelease, &config).await?;
         }
         Commands::List { json } => {
             cmd_list(json, &config)?;
         }
-        Commands::Update { name, all } => {
-            update::cmd_update(name, all, &config).await?;
+        Commands::Update { name, all, force } => {
+            update::cmd_update(name, all, force, &config).await?;
         }
         Commands::Check { json } => {
             update::cmd_check(json, &config).await?;
@@ -96,6 +103,9 @@ async fn run() -> Result<()> {
         }
         Commands::Remove { name, yes } => {
             cmd_remove(&name, yes, &config)?;
+        }
+        Commands::Sync => {
+            sync::cmd_sync(&config).await?;
         }
         Commands::SetupTimer => {
             timer::cmd_setup_timer()?;
@@ -133,113 +143,9 @@ fn maybe_print_stale_banner(config: &Config) {
     }
 }
 
-async fn cmd_install(repo: &str, include_prerelease: bool, config: &Config) -> Result<()> {
-    // Check for an already-managed tool with the same repo before doing any network I/O.
-    let mut state = State::load()?;
-    let binary_name = repo.split('/').next_back().unwrap_or(repo);
-    if let Some(existing) = state.get(binary_name)
-        && existing.repo == repo
-    {
-        anyhow::bail!(
-            "'{binary_name}' is already managed by ghr ({}). \
-                 Run `ghr update {binary_name}` to upgrade it.",
-            existing.installed_tag
-        );
-    }
-
-    // Check if the binary already exists somewhere on $PATH outside of ghr.
-    if let Some(existing_path) = find_on_path(binary_name) {
-        print_warning(&format!(
-            "'{binary_name}' is already installed at {}",
-            existing_path.display()
-        ));
-        let proceed = dialoguer::Confirm::new()
-            .with_prompt("Install anyway and let ghr manage it going forward?")
-            .default(false)
-            .interact()?;
-        if !proceed {
-            print_info("Installation cancelled.");
-            return Ok(());
-        }
-    }
-
-    let token = GithubClient::resolve_token(config.github_token.clone());
-    let client = GithubClient::new(token)?;
-
-    // Fetch release list for interactive picker
-    let mut releases = client.list_releases(repo).await?;
-
-    if !include_prerelease && !config.include_prereleases {
-        releases.retain(|r| !r.prerelease && !r.draft);
-    } else {
-        releases.retain(|r| !r.draft);
-    }
-
-    if releases.is_empty() {
-        anyhow::bail!("no releases found for {repo}");
-    }
-
-    // Interactive release picker
-    let release_labels: Vec<String> = releases
-        .iter()
-        .map(|r| format!("{} ({})", r.tag_name, r.published_at.format("%Y-%m-%d")))
-        .collect();
-
-    let release_idx = dialoguer::FuzzySelect::new()
-        .with_prompt("Pick a release")
-        .items(&release_labels)
-        .default(0)
-        .interact()?;
-
-    let release = &releases[release_idx];
-    println!("Selected: {} — {}", release.tag_name, release.html_url);
-
-    // Match asset
-    let user_arch = detect_arch();
-    let asset = picker::select_asset(release, &user_arch, None, repo, "Pick an asset")?;
-
-    let pb = installer::download::make_progress_bar(None, asset.size, binary_name, None);
-    let result = installer::install_asset(
-        client.http_client(),
-        repo,
-        release,
-        &asset,
-        binary_name,
-        &config.install_dir,
-        &release.assets,
-        pb,
-    )
-    .await?;
-
-    state.upsert(result.tool_entry);
-    state.save()?;
-
-    print_success(&format!(
-        "Installed {} {} → {}",
-        binary_name,
-        release.tag_name,
-        result.installed_path.display()
-    ));
-
-    // Warn if install_dir is not on PATH
-    if let Ok(path_var) = std::env::var("PATH") {
-        let on_path = path_var
-            .split(':')
-            .any(|p| std::path::Path::new(p) == config.install_dir);
-        if !on_path {
-            print_warning(&format!(
-                "{} is not on your PATH. Add it: export PATH=\"{}:$PATH\"",
-                config.install_dir.display(),
-                config.install_dir.display()
-            ));
-        }
-    }
-
-    Ok(())
-}
-
 fn cmd_list(json: bool, _config: &Config) -> Result<()> {
     let state = State::load()?;
+    let manifest = Manifest::load()?;
 
     if state.is_empty() {
         print_info("No tools managed by ghr. Run `ghr install <owner/repo>` to get started.");
@@ -267,10 +173,17 @@ fn cmd_list(json: bool, _config: &Config) -> Result<()> {
             .map(|t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%d %H:%M").to_string())
             .unwrap_or_else(|| "never".to_string());
 
+        let mut tag = entry.installed_tag.clone();
+
+        // put an asterisk on pinned release tags
+        if manifest.is_pinned(&entry.repo).is_some() {
+            tag.push('*');
+        }
+
         println!(
             "{:<20} {:<15} {:<30} {}",
             style(name).green(),
-            entry.installed_tag,
+            tag,
             entry.repo,
             last_checked
         );
@@ -280,6 +193,7 @@ fn cmd_list(json: bool, _config: &Config) -> Result<()> {
 }
 
 fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
+    // TODO: add a funny condition for where ghr tries to remove itself
     let mut state = State::load()?;
 
     let entry = state.require(name)?.clone();
@@ -313,6 +227,13 @@ fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
 
     state.remove(name);
     state.save()?;
+
+    // Keep the declarative manifest in sync: drop the row for this tool's repo so a later
+    // `ghr sync` won't reinstall it. State is keyed by binary name, the manifest by repo.
+    let mut manifest = manifest::Manifest::load()?;
+    if manifest.remove_repo(&entry.repo) {
+        manifest.save()?;
+    }
 
     print_success(&format!("Removed {name}."));
     Ok(())

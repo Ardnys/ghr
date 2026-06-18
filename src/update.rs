@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::github::api::{ApiResponse, ConditionalResult, GithubClient};
 use crate::github::types::{Asset, Release};
 use crate::installer::download::make_progress_bar;
+use crate::manifest::Manifest;
 use crate::output::{print_info, print_success, print_warning};
 use crate::picker::select_asset;
 use crate::state::{State, ToolEntry};
@@ -40,11 +41,13 @@ pub async fn cmd_update_concurrent(config: &Config) -> Result<()> {
         return Ok(());
     }
 
+    let manifest = Manifest::load()?;
     let token = GithubClient::resolve_token(config.github_token.clone());
     let client = GithubClient::new(token)?;
     let user_arch = crate::matcher::score::detect_arch();
 
-    // Phase A: concurrent API checks
+    // Phase A: concurrent API checks. Pinned tools are skipped up front so we don't waste
+    // a request — a pin is a lock, so `update --all` deliberately leaves them alone.
     let snapshot: Vec<(String, ToolEntry)> =
         state.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
@@ -52,6 +55,15 @@ pub async fn cmd_update_concurrent(config: &Config) -> Result<()> {
         JoinSet::new();
 
     for (name, entry) in snapshot {
+        if let Some(tag) = manifest.is_pinned(&entry.repo) {
+            println!(
+                "  {} {} (pinned {})",
+                console::style(&name).blue().bold(),
+                entry.installed_tag,
+                tag
+            );
+            continue;
+        }
         let client = client.clone();
         let repo = entry.repo.clone();
         let etag = entry.etag.clone();
@@ -196,8 +208,19 @@ pub async fn cmd_update_concurrent(config: &Config) -> Result<()> {
 }
 
 /// Sequential update for a single named tool. `--all` is routed to the concurrent path.
-pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Result<()> {
+pub async fn cmd_update(
+    name: Option<String>,
+    all: bool,
+    force: bool,
+    config: &Config,
+) -> Result<()> {
     if all {
+        if force {
+            print_info(
+                "--force has no effect with --all; pinned tools stay locked. \
+                 Name a tool to force-update it.",
+            );
+        }
         return cmd_update_concurrent(config).await;
     }
 
@@ -210,6 +233,29 @@ pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Res
 
     let tool_name = name.ok_or_else(|| anyhow::anyhow!("specify a tool name or pass --all"))?;
     let entry = state.require(&tool_name)?.clone();
+
+    // A pinned tag is a lock: refuse to update unless `--force` is given. With `--force` the
+    // lock is released (the pin is cleared) and the tool is updated to the latest release —
+    // the common case being "I pinned an older version because latest was broken; it's fixed
+    // now, take me back to latest."
+    let mut manifest = Manifest::load()?;
+    let pinned_tag = manifest.is_pinned(&entry.repo).map(str::to_string);
+    if let Some(tag) = pinned_tag {
+        if !force {
+            print_info(&format!(
+                "{tool_name} is pinned to {tag}. \
+                 Re-run `ghr update {tool_name} --force` to update it to the latest release \
+                 (this clears the pin)."
+            ));
+            return Ok(());
+        }
+
+        manifest.upsert(&entry.repo, None);
+        manifest.save()?;
+        print_info(&format!(
+            "Cleared pin on {tool_name} (was {tag}); updating to the latest release."
+        ));
+    }
 
     let token = GithubClient::resolve_token(config.github_token.clone());
     let client = GithubClient::new(token)?;
@@ -287,6 +333,7 @@ pub async fn cmd_update(name: Option<String>, all: bool, config: &Config) -> Res
 
 pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
     let mut state = State::load()?;
+    let manifest = Manifest::load()?;
 
     if state.is_empty() {
         if json {
@@ -315,6 +362,10 @@ pub async fn cmd_check(json: bool, config: &Config) -> Result<()> {
     let mut any_updates = false;
 
     for (name, entry) in &snapshot {
+        if manifest.is_pinned(&entry.repo).is_some() {
+            print_warning(&format!("{} is pinned. Skipping update check.", entry.repo));
+            continue;
+        }
         let result = client
             .get_latest_release(&entry.repo, entry.etag.as_deref())
             .await;

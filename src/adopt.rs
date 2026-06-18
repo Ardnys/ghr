@@ -6,6 +6,7 @@ use chrono::Utc;
 use crate::config::Config;
 use crate::installer::checksum::sha256_file;
 use crate::installer::extract::is_executable;
+use crate::manifest::Manifest;
 use crate::output::{print_success, print_warning};
 use crate::state::{State, ToolEntry};
 
@@ -55,6 +56,12 @@ pub async fn cmd_adopt(path: String, repo: String, _config: &Config) -> Result<(
 
     state.upsert(entry);
     state.save()?;
+
+    // Record the adopted tool in the portable manifest (unpinned) so `ghr sync` on another
+    // machine reinstalls it from its GitHub releases.
+    let mut manifest = Manifest::load()?;
+    manifest.upsert(&repo, None);
+    manifest.save()?;
 
     print_success(&format!(
         "Adopted {binary_name} ({repo}). Run `ghr update {binary_name}` to detect the current version."
