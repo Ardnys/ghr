@@ -107,12 +107,17 @@ pub async fn download_and_verify(
     })
 }
 
+/// `find_name` is used to locate the binary *inside* an archive (repo-derived default,
+/// exact-match then single-ELF fallback). `install_name` is the filename the binary is
+/// installed under and the key it's tracked by in state — it differs from `find_name` only
+/// when the user passes `--alias`. With no alias, callers pass the same value for both.
 pub async fn extract_and_install(
     mut dl: Downloaded,
     asset: &Asset,
     release: &Release,
     repo: &str,
-    binary_name: &str,
+    find_name: &str,
+    install_name: &str,
     install_dir: &Path,
 ) -> Result<InstallResult> {
     // Step 3: Extract archive (or treat as raw binary)
@@ -138,7 +143,7 @@ pub async fn extract_and_install(
         extract::extract_archive(&dl.asset_path, &extract_dir)?;
 
         // Locate binary inside the extracted tree
-        match find_binary(&extract_dir, binary_name)? {
+        match find_binary(&extract_dir, find_name)? {
             BinarySearchResult::Found(p) => p,
             BinarySearchResult::Multiple(candidates) => {
                 let names: Vec<String> =
@@ -160,7 +165,7 @@ pub async fn extract_and_install(
     };
 
     // Step 4+5: chmod + atomic install
-    let installed_path = binary::atomic_install(&binary_src, install_dir, binary_name)?;
+    let installed_path = binary::atomic_install(&binary_src, install_dir, install_name)?;
 
     // Step 6: Build ToolEntry
     let asset_pattern = asset_to_pattern(&asset.name, &release.tag_name);
@@ -169,7 +174,7 @@ pub async fn extract_and_install(
         repo: repo.to_string(),
         installed_tag: release.tag_name.clone(),
         install_path: installed_path.clone(),
-        binary_name: binary_name.to_string(),
+        binary_name: install_name.to_string(),
         asset_pattern,
         installed_sha256: dl.sha256.clone(),
         etag: None,
@@ -193,13 +198,22 @@ pub async fn install_asset(
     repo: &str,
     release: &Release,
     asset: &Asset,
-    binary_name: &str,
+    install_name: &str,
     install_dir: &std::path::Path,
-    all_assets: &[Asset],
     pb: ProgressBar,
 ) -> Result<InstallResult> {
+    let find_name = repo.split('/').next_back().unwrap_or(repo);
+    let all_assets = &release.assets;
     let dl = download_and_verify(client, asset, all_assets, pb).await?;
-    let install_res =
-        extract_and_install(dl, asset, release, repo, binary_name, install_dir).await?;
+    let install_res = extract_and_install(
+        dl,
+        asset,
+        release,
+        repo,
+        find_name,
+        install_name,
+        install_dir,
+    )
+    .await?;
     Ok(install_res)
 }

@@ -40,11 +40,14 @@ ghr install https://github.com/cli/cli
 ghr install sharkdp/fd --prerelease   # include pre-releases
 ghr install sharkdp/bat -t v0.24.0    # pin to a specific release tag
 ghr install junegunn/fzf --to ~/bin   # install into a specific directory
+ghr install BurntSushi/ripgrep -a rg  # install under a custom binary name
 ```
 
 `<repo>` accepts `owner/repo` or any `github.com` URL (with or without scheme, trailing paths are ignored). `ghr i` is a shorthand alias for `ghr install`.
 
 Pass `--to <path>` to install into a directory other than the configured `install_dir` (a leading `~` is expanded). The choice is recorded in the tool's install path, so later `ghr update`s reinstall it there too. It's a local override and is not written to the manifest.
+
+Pass `-a/--alias <name>` to install the binary under a custom name instead of the repo-derived default — `ghr install BurntSushi/ripgrep -a rg` installs `rg`. The alias becomes the installed filename and the name ghr tracks it by (`ghr update rg`, `ghr remove rg`), and is recorded in the manifest so `ghr sync` reproduces it on another machine. The binary *inside* the archive is still auto-detected as usual; the alias only renames the installed file.
 
 Pass `-t/--tag <tag>` to install (and pin) an exact release instead of picking interactively. A pinned tool is **locked**: `ghr update` skips it until you explicitly unpin it with `ghr update <name> --force` (see below). To move a pin to a different tag, re-run `ghr install <repo> -t <newtag>` on the already-managed tool — it reinstalls at that tag and updates the pin in place. Every install records the tool in the [manifest](#manifest).
 
@@ -185,7 +188,7 @@ tag = "v0.24.0"      # optional — presence pins/locks the tool to this tag
 Run `ghr sync` to install everything in the manifest that isn't installed yet. A `tag` both selects the version `sync` installs and locks the tool so `ghr update` skips it.
 
 ## Roadmap
-- [ ] aliasing with -a / --alias, for ripgrep for example. should be persisted in manifest as well.
+- [x] aliasing with -a / --alias, for ripgrep for example. should be persisted in manifest as well.
 - [x] Concurrent `ghr check`
 - [x] `ghr i` alias for `ghr install`
 - [x] `ghr install --to` command to install to given path

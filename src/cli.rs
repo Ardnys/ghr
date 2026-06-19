@@ -23,6 +23,9 @@ pub enum Commands {
         /// Pin to a specific release tag instead of picking interactively
         #[arg(short = 't', long)]
         tag: Option<String>,
+        /// Install the binary under this name instead of the repo-derived default
+        #[arg(short = 'a', long)]
+        alias: Option<String>,
         /// Install into this directory instead of the configured install_dir
         #[arg(long, value_name = "PATH")]
         to: Option<PathBuf>,

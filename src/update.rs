@@ -14,6 +14,8 @@ use crate::output::{print_info, print_success, print_warning};
 use crate::picker::select_asset;
 use crate::state::{State, ToolEntry};
 
+// TODO: all of PendingUpdate's arguments are passed to `extract_and_install`.
+// Instead we could have an impl for this one
 struct PendingUpdate {
     name: String,
     entry: ToolEntry,
@@ -180,11 +182,15 @@ pub async fn cmd_update_concurrent(config: &Config) -> Result<()> {
         let Some(p) = pending_map.remove(&name) else {
             continue;
         };
+        // The archive still ships the upstream-named binary; locate it by the repo-derived
+        // name, but (re)install under the tracked name — which may be an `--alias`.
+        let find_name = p.entry.repo.split('/').next_back().unwrap_or(&p.entry.repo);
         match crate::installer::extract_and_install(
             dl,
             &p.asset,
             &p.release,
             &p.entry.repo,
+            find_name,
             &p.entry.binary_name,
             &p.install_dir,
         )
@@ -304,6 +310,8 @@ pub async fn cmd_update(
             let install_dir = entry.install_dir(&config.install_dir).to_path_buf();
             let pb = make_progress_bar(None, asset.size, &entry.binary_name, None);
 
+            // Locate the binary in the archive by its upstream name; reinstall under the
+            // tracked name (which may be an `--alias`).
             let result = crate::installer::install_asset(
                 client.http_client(),
                 &entry.repo,
@@ -311,7 +319,6 @@ pub async fn cmd_update(
                 &asset,
                 &entry.binary_name,
                 &install_dir,
-                &release.assets,
                 pb,
             )
             .await?;

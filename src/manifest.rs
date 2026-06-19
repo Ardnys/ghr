@@ -24,6 +24,11 @@ pub struct ManifestEntry {
     /// `update` skips it. Absent means "track latest".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// When set, the binary is installed (and tracked) under this name instead of the
+    /// repo-derived default, so `sync` reproduces the custom name. Absent means "use the
+    /// repo name".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
 }
 
 impl Manifest {
@@ -65,7 +70,9 @@ impl Manifest {
         self.tools.iter().find(|e| e.repo == repo)
     }
 
-    /// Add or replace the row for `repo`. Passing `tag = None` clears any existing pin.
+    /// Add or replace the row for `repo`, touching only its `tag` (`None` clears any pin) and
+    /// leaving any existing `alias` intact. Used by the `update --force` pin toggle, which
+    /// must not clobber a custom install name.
     pub fn upsert(&mut self, repo: &str, tag: Option<String>) {
         if let Some(existing) = self.tools.iter_mut().find(|e| e.repo == repo) {
             existing.tag = tag;
@@ -73,6 +80,22 @@ impl Manifest {
             self.tools.push(ManifestEntry {
                 repo: repo.to_string(),
                 tag,
+                alias: None,
+            });
+        }
+    }
+
+    /// Add or replace the row for `repo`, setting both the pin `tag` and the install `alias`.
+    /// Used by `install`/`sync` where both are known up front.
+    pub fn record(&mut self, repo: &str, tag: Option<String>, alias: Option<String>) {
+        if let Some(existing) = self.tools.iter_mut().find(|e| e.repo == repo) {
+            existing.tag = tag;
+            existing.alias = alias;
+        } else {
+            self.tools.push(ManifestEntry {
+                repo: repo.to_string(),
+                tag,
+                alias,
             });
         }
     }
@@ -110,6 +133,40 @@ mod tests {
         assert_eq!(back.tools, m.tools);
         // unpinned entry omits the tag key entirely
         assert!(!toml.contains("ripgrep\"\ntag"));
+    }
+
+    #[test]
+    fn record_round_trips_alias() {
+        let mut m = Manifest::default();
+        m.record("BurntSushi/ripgrep", None, Some("rg".to_string()));
+
+        let toml = toml::to_string_pretty(&m).unwrap();
+        assert!(toml.contains("alias = \"rg\""));
+
+        let back: Manifest = toml::from_str(&toml).unwrap();
+        assert_eq!(back.tools, m.tools);
+        assert_eq!(
+            back.get("BurntSushi/ripgrep").unwrap().alias.as_deref(),
+            Some("rg")
+        );
+
+        // An unaliased record omits the alias key entirely.
+        let mut m2 = Manifest::default();
+        m2.record("sharkdp/bat", None, None);
+        let toml2 = toml::to_string_pretty(&m2).unwrap();
+        assert!(!toml2.contains("alias"));
+    }
+
+    #[test]
+    fn upsert_preserves_existing_alias() {
+        let mut m = Manifest::default();
+        m.record("a/b", None, Some("bee".to_string()));
+
+        // The pin toggle (upsert) must not clobber a custom install name.
+        m.upsert("a/b", Some("v1".to_string()));
+        let e = m.get("a/b").unwrap();
+        assert_eq!(e.tag.as_deref(), Some("v1"));
+        assert_eq!(e.alias.as_deref(), Some("bee"));
     }
 
     #[test]

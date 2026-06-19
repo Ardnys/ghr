@@ -55,6 +55,7 @@ pub async fn cmd_sync(config: &Config) -> Result<()> {
             false,
             config,
             &config.install_dir,
+            entry.alias.as_deref(),
             &mut state,
         )
         .await

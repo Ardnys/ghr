@@ -30,9 +30,12 @@ fn filter_releases(releases: &mut Vec<Release>, include_prerelease: bool, config
     }
 }
 
+// TODO: Installation is getting complicated. It needs an abstraction
+
 /// Shared install core for both `install` and `sync`: resolve a `Release` per `selection`,
 /// pick the matching asset, download + install it, and upsert the result into `state`.
 /// Does NOT save state or touch the manifest — callers own that so they can batch writes.
+#[allow(clippy::too_many_arguments)]
 pub async fn resolve_and_install(
     client: &GithubClient,
     repo: &str,
@@ -40,10 +43,9 @@ pub async fn resolve_and_install(
     include_prerelease: bool,
     config: &Config,
     install_dir: &Path,
+    alias: Option<&str>,
     state: &mut State,
 ) -> Result<InstallResult> {
-    let binary_name = repo.split('/').next_back().unwrap_or(repo);
-
     let release = match selection {
         ReleaseSelection::Tag(tag) => client.get_release_by_tag(repo, &tag).await?,
         ReleaseSelection::Latest => {
@@ -80,15 +82,19 @@ pub async fn resolve_and_install(
     let user_arch = detect_arch();
     let asset = picker::select_asset(&release, &user_arch, None, repo, "Pick an asset")?;
 
-    let pb = installer::download::make_progress_bar(None, asset.size, binary_name, None);
+    // `find_name` locates the binary inside the archive (repo-derived, unaffected by alias);
+    // `install_name` is the filename + state key, overridden by `--alias` when given.
+    let find_name = repo.split('/').next_back().unwrap_or(repo);
+    let install_name = alias.unwrap_or(find_name);
+
+    let pb = installer::download::make_progress_bar(None, asset.size, install_name, None);
     let result = installer::install_asset(
         client.http_client(),
         repo,
         &release,
         &asset,
-        binary_name,
+        install_name,
         install_dir,
-        &release.assets,
         pb,
     )
     .await?;
@@ -102,6 +108,7 @@ pub async fn resolve_and_install(
 pub async fn cmd_install(
     repo: &str,
     tag: Option<String>,
+    alias: Option<String>,
     to: Option<PathBuf>,
     include_prerelease: bool,
     config: &Config,
@@ -114,11 +121,15 @@ pub async fn cmd_install(
         None => config.install_dir.clone(),
     };
 
-    // Look for an already-managed tool with the same repo before doing any network I/O.
+    // Look for an already-managed tool under its install name (the `--alias`, or the
+    // repo-derived default) before doing any network I/O.
     let mut state = State::load()?;
-    let binary_name = repo.split('/').next_back().unwrap_or(repo);
+    let install_name = match alias.as_deref() {
+        Some(a) => a,
+        None => repo.split('/').next_back().unwrap_or(repo),
+    };
     let already_managed = state
-        .get(binary_name)
+        .get(install_name)
         .is_some_and(|existing| existing.repo == repo);
 
     if already_managed {
@@ -126,10 +137,10 @@ pub async fn cmd_install(
         // explicit tag. A bare `ghr install <repo>` must not silently reinstall — that's
         // what `ghr update` is for.
         let Some(new_tag) = tag.as_deref() else {
-            let existing = state.get(binary_name).unwrap();
+            let existing = state.get(install_name).unwrap();
             anyhow::bail!(
-                "'{binary_name}' is already managed by ghr ({}). \
-                     Run `ghr update {binary_name}` to upgrade it, \
+                "'{install_name}' is already managed by ghr ({}). \
+                     Run `ghr update {install_name}` to upgrade it, \
                      or pass `-t <tag>` to re-pin it to a specific release.",
                 existing.installed_tag
             );
@@ -138,11 +149,11 @@ pub async fn cmd_install(
         // the on-PATH adoption prompt — the binary it would find is ours.
         // WARN: For an adopted tool that lives in some other directory (e.g. /usr/local/bin),
         // re-pointing with -t would place the new binary in install_dir and leave the original behind.
-        print_info(&format!("Re-pointing {binary_name} to {new_tag}."));
-    } else if let Some(existing_path) = crate::find_on_path(binary_name) {
+        print_info(&format!("Re-pointing {install_name} to {new_tag}."));
+    } else if let Some(existing_path) = crate::find_on_path(install_name) {
         // Not managed by ghr, but a binary with this name already exists on $PATH.
         print_warning(&format!(
-            "'{binary_name}' is already installed at {}",
+            "'{install_name}' is already installed at {}",
             existing_path.display()
         ));
         let proceed = dialoguer::Confirm::new()
@@ -170,23 +181,25 @@ pub async fn cmd_install(
         include_prerelease,
         config,
         &install_dir,
+        alias.as_deref(),
         &mut state,
     )
     .await?;
     state.save()?;
 
-    // Keep the declarative manifest in sync. The tag (Some => pinned, None => clears any
-    // existing pin) is recorded against the repo so `ghr sync` can replay it elsewhere.
-    let mut manifest = Manifest::load()?;
-    manifest.upsert(repo, tag);
-    manifest.save()?;
-
     print_success(&format!(
         "Installed {} {} → {}",
-        binary_name,
+        install_name,
         result.tool_entry.installed_tag,
         result.installed_path.display()
     ));
+
+    // Keep the declarative manifest in sync. The tag (Some => pinned, None => clears any
+    // existing pin) and the alias are recorded against the repo so `ghr sync` can replay
+    // both elsewhere.
+    let mut manifest = Manifest::load()?;
+    manifest.record(repo, tag, alias);
+    manifest.save()?;
 
     // Warn if the install dir is not on PATH
     // BUG: it looks weird with "." as a path
