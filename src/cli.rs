@@ -78,7 +78,14 @@ pub enum Commands {
     },
 
     /// Install everything in the manifest that is missing from local state
-    Sync,
+    Sync {
+        /// Also remove managed tools that are not listed in the manifest
+        #[arg(long)]
+        prune: bool,
+        /// Skip the prune confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 
     /// Remove ghr's download cache (`~/.cache/ghr`)
     Clean,

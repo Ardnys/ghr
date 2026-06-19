@@ -104,6 +104,13 @@ Install every tool listed in the [manifest](#manifest) that is missing from loca
 ghr sync
 ```
 
+Pass `--prune` to also make local state match the manifest in the other direction: any managed tool whose repo is **not** in the manifest is uninstalled (its binary deleted and the tool untracked, mirroring `ghr remove`). The tools to be removed are listed and confirmed first; add `-y/--yes` to skip the prompt for unattended runs. The manifest is the source of truth, so pruning against an empty manifest removes everything ghr manages.
+
+```sh
+ghr sync --prune        # install missing, then offer to remove extras
+ghr sync --prune -y     # ...without the confirmation prompt
+```
+
 ### `ghr clean`
 
 Remove ghr's download cache at `~/.cache/ghr`. Installs already clean up after themselves, but interrupted or failed runs can leave partial downloads and extraction directories behind — this is the manual sweep. The cache is fully regenerable, so it runs without a prompt and reports how much was freed.
@@ -174,16 +181,24 @@ If the top candidate's score is sufficiently ahead of the second, it is selected
 
 `~/.config/ghr/manifest.toml` is a declarative, portable list of the tools ghr manages. Unlike `state.toml` — a local runtime cache of install paths, checksums, and ETags — the manifest holds only each tool's portable identity (its repo and an optional pinned tag), so you can commit it to your dotfiles and replay it on another machine.
 
-`ghr install`, `ghr remove`, and `ghr adopt` keep it in sync automatically. You can also hand-edit it:
+`ghr install`, `ghr remove`, and `ghr adopt` keep it in sync automatically. You can also hand-edit it, and your edits survive: ghr rewrites only the one entry it's changing, so **comments, ordering, blank lines, and commented-out entries are preserved** across automatic updates.
 
 ```toml
+# My dotfiles tools — keep this list tidy
 [[tools]]
 repo = "BurntSushi/ripgrep"
+alias = "rg"         # optional — install/track the binary under this name
 
 [[tools]]
 repo = "sharkdp/bat"
 tag = "v0.24.0"      # optional — presence pins/locks the tool to this tag
+
+# disabled for now — comment a block out to keep it around without syncing it
+# [[tools]]
+# repo = "junegunn/fzf"
 ```
+
+Comment out a whole `[[tools]]` block to disable an entry without losing it: `ghr sync` (and `--prune`) ignore commented-out tools, and ghr won't clobber the comment next time it edits the file. An inline comment on a `tag` you later re-pin via ghr is kept too.
 
 Run `ghr sync` to install everything in the manifest that isn't installed yet. A `tag` both selects the version `sync` installs and locks the tool so `ghr update` skips it.
 

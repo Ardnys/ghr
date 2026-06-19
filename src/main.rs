@@ -61,7 +61,7 @@ fn parse_repo(input: &str) -> Result<String> {
 }
 use config::Config;
 use output::{print_error, print_info, print_success, print_warning};
-use state::State;
+use state::{State, ToolEntry};
 
 use crate::manifest::Manifest;
 
@@ -125,8 +125,8 @@ async fn run() -> Result<()> {
         Commands::Remove { name, yes } => {
             cmd_remove(&name, yes, &config)?;
         }
-        Commands::Sync => {
-            sync::cmd_sync(&config).await?;
+        Commands::Sync { prune, yes } => {
+            sync::cmd_sync(&config, prune, yes).await?;
         }
         Commands::Clean => {
             clean::cmd_clean()?;
@@ -216,6 +216,27 @@ fn cmd_list(json: bool, _config: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Delete a managed tool's binary from disk and drop it from `state`. Does NOT save state or
+/// touch the manifest — callers batch those (and `sync --prune` deliberately leaves the
+/// manifest alone). Returns the removed entry so callers can sync the manifest by repo.
+/// Shared by `ghr remove` and `ghr sync --prune`.
+pub fn remove_tool(state: &mut State, name: &str) -> Result<ToolEntry> {
+    let entry = state.require(name)?.clone();
+
+    if entry.install_path.exists() {
+        std::fs::remove_file(&entry.install_path)
+            .with_context(|| format!("failed to remove {}", entry.install_path.display()))?;
+    } else {
+        print_warning(&format!(
+            "Binary not found at {} — removing from state only.",
+            entry.install_path.display()
+        ));
+    }
+
+    state.remove(name);
+    Ok(entry)
+}
+
 fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
     // TODO: add a funny condition for where ghr tries to remove itself
     let mut state = State::load()?;
@@ -238,26 +259,13 @@ fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
         }
     }
 
-    // Remove binary
-    if entry.install_path.exists() {
-        std::fs::remove_file(&entry.install_path)
-            .with_context(|| format!("failed to remove {}", entry.install_path.display()))?;
-    } else {
-        print_warning(&format!(
-            "Binary not found at {} — removing from state only.",
-            entry.install_path.display()
-        ));
-    }
-
-    state.remove(name);
+    remove_tool(&mut state, name)?;
     state.save()?;
 
     // Keep the declarative manifest in sync: drop the row for this tool's repo so a later
     // `ghr sync` won't reinstall it. State is keyed by binary name, the manifest by repo.
-    let mut manifest = manifest::Manifest::load()?;
-    if manifest.remove_repo(&entry.repo) {
-        manifest.save()?;
-    }
+    // Format-preserving write: comments and unrelated entries are left untouched.
+    manifest::Manifest::remove_and_save(&entry.repo)?;
 
     print_success(&format!("Removed {name}."));
     Ok(())

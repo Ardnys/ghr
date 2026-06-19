@@ -244,7 +244,7 @@ pub async fn cmd_update(
     // lock is released (the pin is cleared) and the tool is updated to the latest release —
     // the common case being "I pinned an older version because latest was broken; it's fixed
     // now, take me back to latest."
-    let mut manifest = Manifest::load()?;
+    let manifest = Manifest::load()?;
     let pinned_tag = manifest.is_pinned(&entry.repo).map(str::to_string);
     if let Some(tag) = pinned_tag {
         if !force {
@@ -256,8 +256,7 @@ pub async fn cmd_update(
             return Ok(());
         }
 
-        manifest.upsert(&entry.repo, None);
-        manifest.save()?;
+        Manifest::set_tag_and_save(&entry.repo, None)?;
         print_info(&format!(
             "Cleared pin on {tool_name} (was {tag}); updating to the latest release."
         ));
