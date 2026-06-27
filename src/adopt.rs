@@ -31,7 +31,7 @@ pub async fn cmd_adopt(path: String, repo: String, _config: &Config) -> Result<(
         .with_context(|| "could not determine binary name from path")?
         .to_string();
 
-    let mut state = State::load()?;
+    let state = State::load()?;
 
     if state.contains(&binary_name) {
         print_warning(&format!(
@@ -54,8 +54,7 @@ pub async fn cmd_adopt(path: String, repo: String, _config: &Config) -> Result<(
         published_at: None,
     };
 
-    state.upsert(entry);
-    state.save()?;
+    State::mutate(|s| s.upsert(entry))?;
 
     // Record the adopted tool in the portable manifest (unpinned) so `binto sync` on another
     // machine reinstalls it from its GitHub releases.

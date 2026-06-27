@@ -86,6 +86,19 @@ impl State {
         Ok(())
     }
 
+    /// Apply `f` to the freshest on-disk state under the global cross-process lock, then persist.
+    /// Re-reading inside the lock is what prevents lost updates: concurrent `binto` processes
+    /// serialize *just* this short critical section, so a parallel install can't overwrite a
+    /// sibling's entry. Slow work (downloads, extraction) must happen *before* this call, not
+    /// inside `f`.
+    pub fn mutate<R>(f: impl FnOnce(&mut State) -> R) -> Result<R> {
+        let _guard = crate::lock::acquire()?;
+        let mut state = State::load()?;
+        let out = f(&mut state);
+        state.save()?;
+        Ok(out)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
     }

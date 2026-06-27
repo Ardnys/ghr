@@ -6,6 +6,7 @@ mod error;
 mod github;
 mod install;
 mod installer;
+mod lock;
 mod logging;
 mod manifest;
 mod matcher;
@@ -246,7 +247,7 @@ pub fn remove_tool(state: &mut State, name: &str) -> Result<ToolEntry> {
 
 fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
     // TODO: add a funny condition for where binto tries to remove itself
-    let mut state = State::load()?;
+    let state = State::load()?;
 
     let entry = state.require(name)?.clone();
 
@@ -266,8 +267,10 @@ fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
         }
     }
 
-    remove_tool(&mut state, name)?;
-    state.save()?;
+    // Delete the binary + drop the entry under the global lock, re-reading fresh state so a
+    // concurrent mutation isn't lost. `remove_tool` re-`require`s, erroring cleanly if the tool
+    // vanished between the prompt and here.
+    let entry = State::mutate(|s| remove_tool(s, name))??;
 
     // Keep the declarative manifest in sync: drop the row for this tool's repo so a later
     // `binto sync` won't reinstall it. State is keyed by binary name, the manifest by repo.

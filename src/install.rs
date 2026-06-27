@@ -39,15 +39,11 @@ pub struct InstallRequest<'a> {
 }
 
 impl InstallRequest<'_> {
-    /// Resolve the release per `selection`, pick the matching asset, download + install it,
-    /// and upsert the result into `state`. Does NOT save state or touch the manifest — callers
-    /// own that so they can batch writes.
-    pub async fn execute(
-        self,
-        client: &GithubClient,
-        config: &Config,
-        state: &mut State,
-    ) -> Result<InstallResult> {
+    /// Resolve the release per `selection`, pick the matching asset, and download + install it.
+    /// Does NOT touch state or the manifest — callers persist the returned [`InstallResult`]
+    /// (typically via [`State::mutate`]) so the brief, locked write happens *after* this slow
+    /// download work, not during it.
+    pub async fn execute(self, client: &GithubClient, config: &Config) -> Result<InstallResult> {
         let release = self.resolve_release(client, config).await?;
 
         let user_arch = detect_arch();
@@ -58,10 +54,7 @@ impl InstallRequest<'_> {
         if let Some(alias) = self.alias {
             builder = builder.install_name(alias);
         }
-        let result = builder.build().run(client.http_client()).await?;
-
-        state.upsert(result.tool_entry.clone());
-        Ok(result)
+        builder.build().run(client.http_client()).await
     }
 
     async fn resolve_release(&self, client: &GithubClient, config: &Config) -> Result<Release> {
@@ -113,7 +106,7 @@ pub async fn cmd_install(
 
     // Look for an already-managed tool under its install name (the `--alias`, or the
     // repo-derived default) before doing any network I/O.
-    let mut state = State::load()?;
+    let state = State::load()?;
     let install_name = alias
         .as_deref()
         .unwrap_or_else(|| default_binary_name(repo));
@@ -170,9 +163,12 @@ pub async fn cmd_install(
         alias: alias.as_deref(),
         include_prerelease,
     }
-    .execute(&client, config, &mut state)
+    .execute(&client, config)
     .await?;
-    state.save()?;
+
+    // Persist under the global lock, re-reading fresh state so a concurrent `binto install` of a
+    // different tool can't clobber this entry (lost update).
+    State::mutate(|s| s.upsert(result.tool_entry.clone()))?;
 
     print_success(&format!(
         "Installed {} {} → {}",

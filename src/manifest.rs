@@ -79,6 +79,9 @@ impl Manifest {
     /// Insert or update `repo`'s row, recording both `tag` and `alias` (`None` clears that
     /// key). Used by `binto install` / `binto sync`, which know both up front.
     pub fn record_and_save(repo: &str, tag: Option<&str>, alias: Option<&str>) -> Result<()> {
+        // Hold the global lock across load→edit→write so concurrent `binto` processes don't lose
+        // each other's manifest rows.
+        let _guard = crate::lock::acquire()?;
         let mut doc = Self::load_doc()?;
         edit_tool(&mut doc, repo, |t| {
             set_str(t, "tag", tag);
@@ -90,6 +93,7 @@ impl Manifest {
     /// Insert or update only `repo`'s pin `tag` (`None` clears it), leaving any `alias`
     /// untouched. Used by the `update --force` pin toggle and by `adopt`.
     pub fn set_tag_and_save(repo: &str, tag: Option<&str>) -> Result<()> {
+        let _guard = crate::lock::acquire()?;
         let mut doc = Self::load_doc()?;
         edit_tool(&mut doc, repo, |t| set_str(t, "tag", tag))?;
         Self::write_doc(&doc)
@@ -97,6 +101,7 @@ impl Manifest {
 
     /// Drop `repo`'s row. Returns whether a row was removed.
     pub fn remove_and_save(repo: &str) -> Result<bool> {
+        let _guard = crate::lock::acquire()?;
         let mut doc = Self::load_doc()?;
         let removed = remove_row(&mut doc, repo)?;
         if removed {
