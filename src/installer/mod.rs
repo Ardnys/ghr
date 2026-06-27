@@ -88,14 +88,8 @@ impl Downloaded {
 
         let installed_sha256 =
             if let Some(chk_asset) = checksum::find_checksum_asset(&asset.name, all_assets) {
-                match checksum::verify_checksum(
-                    client,
-                    &asset_path,
-                    &asset.name,
-                    &chk_asset.browser_download_url,
-                )
-                .await
-                {
+                tracing::debug!("Checksum asset: {:?}", chk_asset);
+                match checksum::verify_checksum(client, &asset_path, &asset.name, chk_asset).await {
                     Ok(hash) => Some(hash),
                     Err(e) => return Err(e),
                 }
