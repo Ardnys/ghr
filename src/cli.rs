@@ -40,6 +40,9 @@ pub enum Commands {
         /// Include pre-releases in the release list
         #[arg(long)]
         prerelease: bool,
+        /// Non-interactive: auto-pick the asset, skip prompts, and use the latest release if no -t
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Show all managed tools with installed version and update status

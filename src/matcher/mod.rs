@@ -4,6 +4,7 @@ pub mod score;
 
 use anyhow::Result;
 
+use crate::config::Libc;
 use crate::error::BintoError;
 use crate::github::types::Asset;
 use filter::apply_hard_filters;
@@ -24,6 +25,7 @@ pub fn match_asset(
     stored_pattern: Option<&str>,
     repo: &str,
     tag: &str,
+    prefer_libc: Libc,
 ) -> Result<MatchOutput> {
     // Pattern fast-path: if we have a stored pattern and it matches exactly one asset
     if let Some(pat) = stored_pattern {
@@ -36,7 +38,7 @@ pub fn match_asset(
                 .into_iter()
                 .find(|a| a.name == matched_name)
                 .unwrap();
-            let score = score::score_asset(&asset, user_arch);
+            let score = score::score_asset(&asset, user_arch, prefer_libc);
             return Ok(MatchOutput::AutoSelected(ScoredAsset { asset, score }));
         }
     }
@@ -53,7 +55,7 @@ pub fn match_asset(
     }
 
     // Score and rank
-    let scored = score_and_rank(candidates, user_arch);
+    let scored = score_and_rank(candidates, user_arch, prefer_libc);
 
     if scored.is_empty() {
         return Err(BintoError::NoCompatibleAssets {

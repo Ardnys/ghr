@@ -114,6 +114,8 @@ pub async fn cmd_update_concurrent(config: &Config) -> Result<()> {
                     Some(&entry.asset_pattern),
                     &entry.repo,
                     &format!("Pick an asset for {name}"),
+                    config.prefer_libc,
+                    false,
                 )?;
                 let install_dir = entry.install_dir(&config.install_dir).to_path_buf();
 
@@ -299,6 +301,8 @@ pub async fn cmd_update(
                 Some(&entry.asset_pattern),
                 &entry.repo,
                 "Pick an asset",
+                config.prefer_libc,
+                false,
             )?;
             let install_dir = entry.install_dir(&config.install_dir).to_path_buf();
 

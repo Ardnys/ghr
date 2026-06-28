@@ -123,6 +123,8 @@ pub async fn cmd_sync(config: &Config, prune: bool, yes: bool) -> Result<()> {
             None,
             &entry.repo,
             &format!("Pick an asset for {}", entry.repo),
+            config.prefer_libc,
+            false,
         ) {
             Ok(asset) => pending.push(PendingSync {
                 install_name,

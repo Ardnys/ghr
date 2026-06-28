@@ -112,9 +112,10 @@ async fn run(cli: Cli) -> Result<()> {
             alias,
             to,
             prerelease,
+            yes,
         } => {
             let repo = parse_repo(&repo)?;
-            install::cmd_install(&repo, tag, alias, to, prerelease, &config).await?;
+            install::cmd_install(&repo, tag, alias, to, prerelease, yes, &config).await?;
         }
         Commands::List { json } => {
             cmd_list(json, &config)?;

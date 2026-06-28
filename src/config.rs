@@ -11,6 +11,17 @@ pub struct Config {
     pub include_prereleases: bool,
     pub check_interval_hours: u32,
     pub notify: NotifyMode,
+    pub prefer_libc: Libc,
+}
+
+/// Which libc flavor to prefer when a release ships both. The non-preferred flavor stays
+/// eligible (a tool shipping only the other still installs) — this only shifts the soft score.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Libc {
+    #[default]
+    Gnu,
+    Musl,
 }
 
 // TODO: notifications are not implemented
@@ -31,10 +42,12 @@ impl Default for Config {
             include_prereleases: false,
             check_interval_hours: 24,
             notify: NotifyMode::Terminal,
+            prefer_libc: Libc::Gnu,
         }
     }
 }
 
+// TODO: .local/share/binto/bin is a safer default than populating .local/bin, which could be used already
 fn default_install_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))

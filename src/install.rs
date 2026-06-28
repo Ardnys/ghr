@@ -18,6 +18,8 @@ pub enum ReleaseSelection {
     Tag(String),
     /// Show the interactive release picker (the default `binto install` flow).
     InteractivePick,
+    /// Take the latest release without prompting (`--yes` with no `-t`).
+    Latest,
 }
 
 fn filter_releases(releases: &mut Vec<Release>, include_prerelease: bool, config: &Config) {
@@ -36,6 +38,8 @@ pub struct InstallRequest<'a> {
     pub install_dir: &'a Path,
     pub alias: Option<&'a str>,
     pub include_prerelease: bool,
+    /// Non-interactive: auto-pick the top-scored asset instead of prompting.
+    pub assume_yes: bool,
 }
 
 impl InstallRequest<'_> {
@@ -47,7 +51,15 @@ impl InstallRequest<'_> {
         let release = self.resolve_release(client, config).await?;
 
         let user_arch = detect_arch();
-        let asset = picker::select_asset(&release, &user_arch, None, self.repo, "Pick an asset")?;
+        let asset = picker::select_asset(
+            &release,
+            &user_arch,
+            None,
+            self.repo,
+            "Pick an asset",
+            config.prefer_libc,
+            self.assume_yes,
+        )?;
 
         let mut builder =
             InstallSpec::builder(self.repo, &release, &asset).install_dir(self.install_dir);
@@ -60,6 +72,15 @@ impl InstallRequest<'_> {
     async fn resolve_release(&self, client: &GithubClient, config: &Config) -> Result<Release> {
         let release = match &self.selection {
             ReleaseSelection::Tag(tag) => client.get_release_by_tag(self.repo, tag).await?,
+            ReleaseSelection::Latest => {
+                let mut releases = client.list_releases(self.repo).await?;
+                filter_releases(&mut releases, self.include_prerelease, config);
+                if releases.is_empty() {
+                    anyhow::bail!("no releases found for {}", self.repo);
+                }
+                // list_releases returns newest-first; take the latest.
+                releases.swap_remove(0)
+            }
             ReleaseSelection::InteractivePick => {
                 let mut releases = client.list_releases(self.repo).await?;
                 filter_releases(&mut releases, self.include_prerelease, config);
@@ -94,6 +115,7 @@ pub async fn cmd_install(
     alias: Option<String>,
     to: Option<PathBuf>,
     include_prerelease: bool,
+    assume_yes: bool,
     config: &Config,
 ) -> Result<()> {
     // Resolve the effective install directory: a `--to` override (with `~` expanded) wins,
@@ -138,22 +160,27 @@ pub async fn cmd_install(
             "'{install_name}' is already installed at {}",
             existing_path.display()
         ));
-        let proceed = dialoguer::Confirm::new()
-            .with_prompt("Install anyway and let binto manage it going forward?")
-            .default(false)
-            .interact()?;
-        if !proceed {
-            print_info("Installation cancelled.");
-            return Ok(());
+        if assume_yes {
+            print_info("Installing anyway (--yes); binto will manage it going forward.");
+        } else {
+            let proceed = dialoguer::Confirm::new()
+                .with_prompt("Install anyway and let binto manage it going forward?")
+                .default(false)
+                .interact()?;
+            if !proceed {
+                print_info("Installation cancelled.");
+                return Ok(());
+            }
         }
     }
 
     let token = GithubClient::resolve_token(config.github_token.clone());
     let client = GithubClient::new(token)?;
 
-    let selection = match tag.clone() {
-        Some(t) => ReleaseSelection::Tag(t),
-        None => ReleaseSelection::InteractivePick,
+    let selection = match (tag.clone(), assume_yes) {
+        (Some(t), _) => ReleaseSelection::Tag(t),
+        (None, true) => ReleaseSelection::Latest,
+        (None, false) => ReleaseSelection::InteractivePick,
     };
 
     let result = InstallRequest {
@@ -162,6 +189,7 @@ pub async fn cmd_install(
         install_dir: &install_dir,
         alias: alias.as_deref(),
         include_prerelease,
+        assume_yes,
     }
     .execute(&client, config)
     .await?;
