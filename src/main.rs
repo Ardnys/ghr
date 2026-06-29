@@ -16,6 +16,7 @@ mod state;
 mod sync;
 mod timer;
 mod ui_format;
+mod uninstall;
 mod update;
 
 use anyhow::{Context, Result};
@@ -139,6 +140,9 @@ async fn run(cli: Cli) -> Result<()> {
         Commands::Clean => {
             clean::cmd_clean()?;
         }
+        Commands::Uninstall => {
+            uninstall::cmd_uninstall()?;
+        }
         Commands::SetupTimer => {
             timer::cmd_setup_timer()?;
         }
@@ -168,7 +172,7 @@ fn maybe_print_stale_banner(config: &Config) {
         print_status(&format!(
             "{}",
             style(format!(
-                "{stale_count} tool(s) haven't been checked recently — run `binto check`"
+                "{stale_count} tool(s) haven't been checked recently. run `binto check`"
             ))
             .yellow()
         ));
@@ -251,6 +255,13 @@ fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
     let state = State::load()?;
 
     let entry = state.require(name)?.clone();
+
+    if entry.repo == "Ardnys/binto" {
+        print_warning(
+            "You are trying to remove binto, with binto. To properly remove binto, see `binto uninstall --help`",
+        );
+        anyhow::bail!("Aborted.");
+    }
 
     if !yes {
         let confirmed = dialoguer::Confirm::new()

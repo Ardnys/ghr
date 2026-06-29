@@ -101,6 +101,27 @@ pub enum Commands {
     /// Remove binto's download cache (`~/.cache/binto`)
     Clean,
 
+    /// Uninstall binto: always removes its state, optionally binaries/manifest/config/logs
+    ///
+    /// binto never deletes its own executable as a special step. The intended way to remove
+    /// the binto binary is to let binto manage itself, so it gets removed as one of the
+    /// installed binaries. There are two clean ways out:
+    ///
+    ///   * Get rid of binto entirely: select "Remove installed binaries" (and whatever else
+    ///     you want gone). If binto is self-managed, this deletes the binto binary along with
+    ///     the tools it installed.
+    ///
+    ///   * Keep your tools, drop binto's management: leave "Remove installed binaries"
+    ///     unselected and remove the rest. Your binaries (binto included) stay on PATH and
+    ///     become yours to manage by hand; binto simply stops tracking them.
+    ///
+    /// NOTE: Nuking data directory WILL REMOVE any binary installed in the default installation folder.
+    ///
+    /// Deleting the binto binary on its own is deliberately not offered and not recommended.
+    /// It would just orphan binto's data.
+    #[command(verbatim_doc_comment)]
+    Uninstall,
+
     /// Generate and optionally enable a systemd user timer for automatic update checks
     SetupTimer,
 

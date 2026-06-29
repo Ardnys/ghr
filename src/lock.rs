@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 
 /// Path to the lock file (`~/.local/share/binto/.lock`). It carries no data — only its advisory
 /// lock matters — and lives in the data dir so `binto clean` (which wipes the cache) leaves it be.
-fn lock_path() -> PathBuf {
+pub fn lock_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".local/share"))
         .join("binto/.lock")
