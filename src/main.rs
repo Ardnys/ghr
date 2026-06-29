@@ -251,7 +251,6 @@ pub fn remove_tool(state: &mut State, name: &str) -> Result<ToolEntry> {
 }
 
 fn cmd_remove(name: &str, yes: bool, _config: &Config) -> Result<()> {
-    // TODO: add a funny condition for where binto tries to remove itself
     let state = State::load()?;
 
     let entry = state.require(name)?.clone();
